@@ -75,3 +75,28 @@ def expected_trading_dates(year: int) -> list[date]:
             out.append(d)
         d += timedelta(days=1)
     return out
+
+
+def validate_killzones(cfg: dict) -> None:
+    """Fail loudly on a config edit that would make setup scoring ambiguous."""
+    def m(s: str) -> int:
+        t = hhmm(s)
+        return t.hour * 60 + t.minute
+
+    for group in ("windows", "pre_open_windows"):
+        for k, w in cfg.get(group, {}).items():
+            if not k.startswith("_"):
+                hhmm(w["start"]), hhmm(w["end"])
+    for kz, sc in cfg["setup_scoring"].items():
+        if kz.startswith("_"):
+            continue
+        w = cfg["windows"][kz]
+        start, end = m(w["start"]), m(w["end"])
+        entry, primary = m(sc["entry_until"]), m(sc["primary_until"])
+        if not (start < entry <= end):
+            raise ValueError(f"{kz}: entry_until {sc['entry_until']} must be inside the killzone")
+        if not (entry <= primary <= 17 * 60):
+            raise ValueError(f"{kz}: primary_until must be between entry_until and the 17:00 day boundary")
+        for s in sc["secondary_until"]:
+            if not (entry <= m(s) <= 17 * 60):
+                raise ValueError(f"{kz}: secondary horizon {s} outside entry_until..17:00")

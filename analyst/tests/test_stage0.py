@@ -203,3 +203,13 @@ def test_partial_year_is_not_complete(tmp_path):
     row = cov[cov["year"] == 2021].iloc[0]
     assert row["kz_coverage"] == 1.0 and not row["full_year"] and not row["complete"]
     assert row["missing_days"] == ""
+
+
+def test_killzone_config_valid():
+    from engine.timeutil import validate_killzones
+    cfg = load_killzones()
+    validate_killzones(cfg)
+    bad = json.loads(json.dumps(cfg))
+    bad["setup_scoring"]["london_kz"]["primary_until"] = "04:00"
+    with pytest.raises(ValueError):
+        validate_killzones(bad)

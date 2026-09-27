@@ -17,7 +17,7 @@ pip install -r requirements.txt
 python run.py stage0            # ingest data/raw → data/bars, integrity report, config/splits.json
 python run.py stage0 --tz NY+7  # only if the report says the clock is ambiguous and the broker's server time is known
 python run.py status
-python -m pytest -q             # 17 tests
+python -m pytest -q             # 18 tests
 ```
 
 Data input: MT5 CSVs whose file names contain `EURUSD` (required) or `DXY`/`USDX` (optional), any split by year
@@ -28,7 +28,7 @@ headerless script exports (`2021.03.01 00:00,o,h,l,c,v`). Epoch or ISO-with-offs
 
 | Stage | Files | Tests |
 |---|---|---|
-| 0 ingest + clock + integrity + splits | `engine/ingest.py`, `engine/integrity.py`, `engine/splits.py`, `engine/timeutil.py`, `run.py stage0` | `tests/test_stage0.py` (17) |
+| 0 ingest + clock + integrity + splits | `engine/ingest.py`, `engine/integrity.py`, `engine/splits.py`, `engine/timeutil.py`, `run.py stage0` | `tests/test_stage0.py` (18) |
 
 Full-scale dry run on synthetic data (11.5 years, 4.3M M1 bars, NY+7 clock): 38 s, PASS, splits 2016–22 / 2023–24 / 2025.
 
@@ -44,7 +44,7 @@ Full-scale dry run on synthetic data (11.5 years, 4.3M M1 bars, NY+7 clock): 38 
 - **D008 Year completeness:** a year is complete when it spans the full calendar year (≥ 98% of its expected dates inside the export) and ≥ 90% of expected non-holiday trading dates have both killzones ≥ 90% populated. The split uses the **last ten complete contiguous years**; a partial current year is not complete, so it can never become the holdout.
 - **D009 Split enforcement:** `engine/splits.load_bars(symbol, split, start, end)` is the only bar loader. A split may read any date up to its own end (lookback into earlier splits is the past, and Stage 1 needs it for PWH/PML/1-year ATR percentiles). Train cannot read Validation dates. Nothing on or after the holdout start (including any partial year after Y10) is readable without `config/HOLDOUT_UNLOCKED`. Split boundaries are frozen once written (`--force-resplit` to move them, which must be logged here).
 - **D010 Integrity verdict:** FAIL (stop) = clock unverified/ambiguous or < 3 complete years; WARN = split-year KZ coverage < 97%, any gap inside a killzone, or < 10 complete years. WARN still goes to H1 for the user to decide.
-- **D011 Setup hold window = 0 min** after the killzone (`config/killzones.json`), matching the skill's exit "the KZ ending". Changeable in config only.
+- **D011 Setup scoring window (user delegated the killzone choice, 2026-09-27).** Killzone *windows* stay as SPEC §1 (London 02:00–05:00, NY AM 07:00–10:00): they are the user's trading windows and the decision points hang off them. What changed is how long a setup is followed: an entry must trigger inside its killzone, then the setup is scored until **07:00 for London** (the pre-NY lull, before a new session's liquidity takes over) and **12:00 for NY AM** (end of London close). Scoring only to the KZ end (the earlier default) would mark a setup that reaches its draw 20 minutes after 05:00 as invalid — the skill's own 25 Mar PDL target printed at 12:10 — which measures the exit rule, not the setup. Non-valid setups carry a reason, `stopped` or `expired`, so the two are never confused. Secondary horizons (KZ end, 12:00, 17:00) are recorded for every setup, but a rule may use one only if its hypothesis names it before testing. Chosen **before seeing any data**, so it cannot be a fitted choice; changing it later is logged here as a new decision. Pre-open 60/30-min windows added as annotator reference windows (the skill's tier-1b pools). `validate_killzones` rejects inconsistent edits.
 - **D012 The ict-smc-trader engine is not in this environment.** `market.py`/`journal.py` (setup, pools, divg) live on the user's Windows PC (`Documents\Trading Journal`). Stage 1 needs them; see open question Q1. Its journal is never written to.
 
 ## Open questions (for the user)
