@@ -1,0 +1,4 @@
+data/bars/*.parquet
+config/HOLDOUT_UNLOCKED
+__pycache__/
+.pytest_cache/

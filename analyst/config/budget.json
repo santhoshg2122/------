@@ -1,0 +1,8 @@
+{
+  "max_days_per_run": 60,
+  "max_tokens_per_day": 400000,
+  "max_tokens_per_run": 20000000,
+  "max_web_searches_per_research_cycle": 20,
+  "pilot_days": 60,
+  "_note": "When any limit is hit, finish the current day cleanly and stop (SPEC §11)."
+}
