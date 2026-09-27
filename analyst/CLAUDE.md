@@ -18,6 +18,8 @@ python run.py stage0            # ingest data/raw → data/bars, integrity repor
 python run.py stage0 --tz NY+7  # only if the report says the clock is ambiguous and the broker's server time is known
 python run.py status
 python -m pytest -q             # 18 tests
+# on the user's Windows PC (D013):
+powershell -ExecutionPolicy Bypass -File tools\stage0_windows.ps1 [-Source <folder>]
 ```
 
 Data input: MT5 CSVs whose file names contain `EURUSD` (required) or `DXY`/`USDX` (optional), any split by year
@@ -46,6 +48,8 @@ Full-scale dry run on synthetic data (11.5 years, 4.3M M1 bars, NY+7 clock): 38 
 - **D010 Integrity verdict:** FAIL (stop) = clock unverified/ambiguous or < 3 complete years; WARN = split-year KZ coverage < 97%, any gap inside a killzone, or < 10 complete years. WARN still goes to H1 for the user to decide.
 - **D011 Setup scoring window (user delegated the killzone choice, 2026-09-27).** Killzone *windows* stay as SPEC §1 (London 02:00–05:00, NY AM 07:00–10:00): they are the user's trading windows and the decision points hang off them. What changed is how long a setup is followed: an entry must trigger inside its killzone, then the setup is scored until **07:00 for London** (the pre-NY lull, before a new session's liquidity takes over) and **12:00 for NY AM** (end of London close). Scoring only to the KZ end (the earlier default) would mark a setup that reaches its draw 20 minutes after 05:00 as invalid — the skill's own 25 Mar PDL target printed at 12:10 — which measures the exit rule, not the setup. Non-valid setups carry a reason, `stopped` or `expired`, so the two are never confused. Secondary horizons (KZ end, 12:00, 17:00) are recorded for every setup, but a rule may use one only if its hypothesis names it before testing. Chosen **before seeing any data**, so it cannot be a fitted choice; changing it later is logged here as a new decision. Pre-open 60/30-min windows added as annotator reference windows (the skill's tier-1b pools). `validate_killzones` rejects inconsistent edits.
 - **D012 The ict-smc-trader engine is not in this environment.** `market.py`/`journal.py` (setup, pools, divg) live on the user's Windows PC (`Documents\Trading Journal`). Stage 1 needs them; see open question Q1. Its journal is never written to.
+
+- **D013 Stage 0 runs on the user's PC** (user's choice, 2026-09-27): the cloud session cannot reach the local drive. `tools/stage0_windows.ps1` copies every CSV/TXT whose name contains EURUSD/DXY/USDX from `Documents\Trading Journal\data\hist` (or `-Source`) into `data/raw`, installs deps and runs `run.py stage0`. Raw CSVs stay on the PC; the report, `config/splits.json` and (optionally) the parquet bars are pushed.
 
 ## Open questions (for the user)
 
