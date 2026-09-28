@@ -2,3 +2,5 @@ data/bars/*.parquet
 config/HOLDOUT_UNLOCKED
 __pycache__/
 .pytest_cache/
+data/raw/*.csv
+data/raw/*.txt

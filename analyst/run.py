@@ -59,9 +59,34 @@ def cmd_stage0(args) -> int:
     (ingest.DEFAULT_BARS / "_meta.json").write_text(json.dumps(meta, indent=2, default=str) + "\n")
     GATE_FILE.write_text(json.dumps({"gate": "H1", "status": "awaiting_approval" if overall != "FAIL" else "blocked_integrity_fail",
                                      "integrity": overall, "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}, indent=2) + "\n")
+    print_summary(results, covs, anomalies, statuses, sp)
     print(f"[stage0] integrity {overall} → {REPORT_MD.relative_to(ROOT)}")
     print("[stage0] HUMAN GATE H1: review the report; nothing past Stage 0 runs until it is approved.")
     return 1 if overall == "FAIL" else 0
+
+
+def print_summary(results, covs, anomalies, statuses, sp) -> None:
+    """Compact console version of the report, short enough to paste into a chat."""
+    print("\n==================== STAGE 0 SUMMARY ====================")
+    for sym, (st, reasons) in statuses.items():
+        r = results[sym]
+        top = sorted(r.tz_scores.items(), key=lambda kv: -kv[1])[:3]
+        print(f"{sym}: {st} — {'; '.join(reasons)}")
+        print(f"  M{r.timeframe_min} · clock {r.tz_detected} · " + ", ".join(f"{k} {v:.0%}" for k, v in top))
+        print(f"  weekly opens: " + ", ".join(f"{k} x{v}" for k, v in r.sunday_open_hist.items()))
+        c = r.counts
+        print(f"  rows {c['raw_rows']:,} -> {c['clean_rows']:,} · dups {c['duplicate_rows_dropped']} · "
+              f"off-session {c['off_session_bars_dropped']} · bad ticks {c['bad_ticks_repaired']} · zero-range {c['zero_range_bars']}")
+        cov = covs[sym]
+        print("  year  days  kz_full  kz_cov  complete")
+        for row in cov.itertuples():
+            print(f"  {row.year}  {row.days_present:>4}/{row.expected_days:<4} {row.days_kz_full:>4}  {row.kz_coverage:>6.1%}  {row.complete}")
+        an = anomalies[sym]
+        if len(an):
+            print("  anomalies: " + ", ".join(f"{t}={n}" for t, n in an.groupby("type").size().items()))
+    if sp:
+        print("split: " + " | ".join(f"{k} {sp[k]['years'][0]}-{sp[k]['years'][-1]}" for k in splits.SPLITS))
+    print("==========================================================\n")
 
 
 def cmd_status(_args) -> int:

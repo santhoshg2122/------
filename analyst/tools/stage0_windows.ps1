@@ -1,26 +1,33 @@
-# Stage 0 on the user's Windows PC: copy the MT5 exports in, install deps, run the integrity check.
+# Stage 0 on the user's Windows PC, fully local (no GitHub):
 #   powershell -ExecutionPolicy Bypass -File tools\stage0_windows.ps1
-#   powershell -ExecutionPolicy Bypass -File tools\stage0_windows.ps1 -Source "D:\MT5 exports"
+#   powershell -ExecutionPolicy Bypass -File tools\stage0_windows.ps1 -File "D:\other\EURUSD_M1.csv" [-DxyFile "...\DXY_M1.csv"]
+# Uses exactly the file(s) given: never mixes timeframes (the EURUSD_data folder also holds 3m/15m/1h/4h files).
 param(
-    [string]$Source = "$env:USERPROFILE\Documents\Trading Journal\data\hist"
+    [string]$File = "$env:USERPROFILE\Documents\EURUSD_data\EURUSD_1m_NY.csv",
+    [string]$DxyFile = ""
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Raw = Join-Path $Root "data\raw"
 
-if (-not (Test-Path $Source)) { throw "Source folder not found: $Source  (pass -Source <folder with the EURUSD CSVs>)" }
-$files = Get-ChildItem -Path $Source -Recurse -File -Include *.csv, *.txt |
-         Where-Object { $_.Name -match 'EURUSD|DXY|USDX' }
-if (-not $files) { throw "No CSV/TXT with EURUSD, DXY or USDX in its name under $Source" }
-
-Write-Host "Copying $($files.Count) file(s) from $Source to $Raw"
+if (-not (Test-Path $File)) { throw "EURUSD file not found: $File  (pass -File <path to the M1 csv>)" }
 New-Item -ItemType Directory -Force -Path $Raw | Out-Null
-$files | ForEach-Object { Copy-Item $_.FullName -Destination $Raw -Force; Write-Host "  $($_.Name)  $([math]::Round($_.Length/1MB,1)) MB" }
+# Clear earlier inputs so only this run's files are ingested
+Get-ChildItem $Raw -File | Where-Object { $_.Name -match 'EURUSD|DXY|USDX' } | Remove-Item -Force
 
+Write-Host "Copying $File"
+Copy-Item $File -Destination (Join-Path $Raw "EURUSD_M1.csv") -Force
+if ($DxyFile) {
+    if (-not (Test-Path $DxyFile)) { throw "DXY file not found: $DxyFile" }
+    Write-Host "Copying $DxyFile"
+    Copy-Item $DxyFile -Destination (Join-Path $Raw "DXY_M1.csv") -Force
+}
+
+$Py = if (Get-Command python -ErrorAction SilentlyContinue) { "python" } elseif (Get-Command py -ErrorAction SilentlyContinue) { "py" } else { throw "Python not found: install it from python.org (tick 'Add to PATH')" }
 Push-Location $Root
 try {
-    python -m pip install -q -r requirements.txt
-    python run.py stage0
+    & $Py -m pip install -q -r requirements.txt
+    & $Py run.py stage0
     Write-Host ""
-    Write-Host "Report: $Root\reports\data_integrity.md  (HUMAN GATE H1)"
+    Write-Host "Full report: $Root\reports\data_integrity.md  (HUMAN GATE H1)"
 } finally { Pop-Location }
