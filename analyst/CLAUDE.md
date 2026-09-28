@@ -2,6 +2,16 @@
 
 Spec: `SPEC.md` (source of truth). Update this file at every step.
 
+## Handover — the build continues on the user's Windows PC (2026-09-28)
+
+User decision: **the whole project runs locally from here on**; the cloud session that wrote Stage 0 cannot reach this PC. If you are the local session reading this:
+
+1. Project root = the folder holding this file (unzipped to `C:\Users\Windows\Documents\eurusd-analyst`). Follow `SPEC.md` §15 build order; keep this file updated at every step.
+2. Data: `C:\Users\Windows\Documents\EURUSD_data\EURUSD_1m_NY.csv` (D014). Run `powershell -ExecutionPolicy Bypass -File tools\stage0_windows.ps1`, then show the user the STAGE 0 SUMMARY and `reports\data_integrity.md` — **HUMAN GATE H1: stop and wait for approval.**
+3. After H1, Q1 is answerable locally: the ict-smc-trader engine is `C:\Users\Windows\Documents\Trading Journal\market.py` (+ `skill_refs\session_open_model.md`, `liquidity_pools.md`). Copy (never edit) into `engine\vendor\`; never write to that journal (`entries.jsonl`).
+4. DXY (Q2): `Trading Journal\data\hist\DXY_M1.csv` covers only weeks; ask the user for a 10-year DXY export or the six component pairs.
+5. Run `python -m pytest -q` before and after every change. Gates H2 (after the 60-day pilot) and H3 (holdout) also stop for the user.
+
 ## Current stage
 
 **Stage 0 built and tested → waiting for data, then HUMAN GATE H1.**
