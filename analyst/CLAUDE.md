@@ -51,6 +51,8 @@ Full-scale dry run on synthetic data (11.5 years, 4.3M M1 bars, NY+7 clock): 38 
 
 - **D013 Stage 0 runs on the user's PC** (user's choice, 2026-09-27): the cloud session cannot reach the local drive. `tools/stage0_windows.ps1` copies every CSV/TXT whose name contains EURUSD/DXY/USDX from `Documents\Trading Journal\data\hist` (or `-Source`) into `data/raw`, installs deps and runs `run.py stage0`. Raw CSVs stay on the PC; the report, `config/splits.json` and (optionally) the parquet bars are pushed.
 
+- **D014 Data source found (2026-09-28).** The user's search found `C:\Users\Windows\Documents\EURUSD_data\EURUSD_1m_NY.csv` (199.8 MB, M1, name says NY time) — the 10-year candidate; the Trading Journal `data/hist` files are only ~4 MB (weeks). The file comes to the cloud session via git, split by year with `tools/split_by_year.py` (GitHub's 100 MB limit), so `data/raw/*.csv` is no longer git-ignored. Other copies exist (`C:\Trading\Quant_MAS\data\EURUSD_M1.csv` 58 MB, `D:\claude\audusd_ml_trading\data\raw\fresh\EURUSD_M1.csv` 118 MB) but are not used. DXY M1 on the PC covers only ~weeks, so 10-year DXY divergence is not available yet (Q2).
+
 ## Open questions (for the user)
 
 - **Q1** Can `market.py` (and `skill_refs/session_open_model.md`, `liquidity_pools.md`) be copied into `analyst/engine/vendor/`? Stage 1 should reuse its pool tiers, CHOCH and `divg` rather than re-derive them. If not, I will reimplement them from the skill text and flag every place the definitions could differ.
