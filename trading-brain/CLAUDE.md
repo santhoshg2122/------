@@ -13,7 +13,7 @@ EURUSD/GBPUSD multi-agent Pattern Brain. Three analyst agents (Sonnet) read one 
 - No web access. No files outside this project. Use `python` (Windows) for every script.
 
 ## Models
-Analysts `model: sonnet` (resolved to claude-sonnet-5-5 in the first live run), curator `model: opus` and main `/cycle` session `--model opus` (claude-opus-5-5). Aliases follow the newest versions. First live cycle on synthetic data: 7 min, $2.08 (Opus $0.94, Sonnet $1.14); after B011 (candle reading): $2.01, agents cited candles, the critic audited 8 candle claims, all files validated. If the curator logs `REVIEWER DRIFT`, set `model: opus` in `.claude/agents/chart-critic.md`.
+Analysts `model: sonnet` (resolved to claude-sonnet-5-5 in the first live run), curator `model: opus` and main `/cycle` session `--model opus` (claude-opus-5-5). Aliases follow the newest versions. First live cycle on synthetic data: 7 min, $2.08 (Opus $0.94, Sonnet $1.14); after B011 (candle reading): $2.01; after B012 (M1 only): $1.65 (Opus $1.05, Sonnet $0.60), 25 M1 candle refs cited (3 from the context), none M5/M15, all files validated. If the curator logs `REVIEWER DRIFT`, set `model: opus` in `.claude/agents/chart-critic.md`.
 
 ## Pieces
 | Path | Role |
