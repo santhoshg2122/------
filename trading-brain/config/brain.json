@@ -13,7 +13,7 @@
   "pair_bias": {"lead_by": 0.10, "min_n_each": 10, "neither_below": 0.45, "window": 20},
   "merge_signatures_object_overlap": 0.80,
   "agent_grading_window_cycles": 200,
-  "reviewer_drift": {"max_agreement": 0.90, "min_catch_precision": 0.40},
+  "reviewer_drift": {"max_agreement": 0.90, "min_catch_precision": 0.40, "min_verdicts": 20},
   "precursor_mining": {"sessions": 20, "min_share": 0.60, "min_n": 12},
   "backtest_pass": {"min_hit_rate": 0.55, "min_n": 15}
 }

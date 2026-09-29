@@ -225,3 +225,12 @@ def test_validator_rejects(data, tmp_path):
     a["packet_sha256"] = "0" * 64
     (run / "1_analyst.json").write_text(json.dumps(a))
     assert "differs" in V.validate(run / "1_analyst.json", pp)
+
+
+def test_reviewer_drift_needs_sample():
+    st = state_with({})
+    st["agents"]["cycles"] = [{"cycle": "k", "analyst_candidates": 2, "analyst_claims_refuted": 0,
+                               "critic_verdicts": ["AGREE", "AGREE"], "critic_challenged": [], "critic_new": 0, "strategist_new": 0}]
+    assert brain.agent_scores(st)["reviewer_drift"] is False
+    st["agents"]["cycles"][0]["critic_verdicts"] = ["AGREE"] * 20
+    assert brain.agent_scores(st)["reviewer_drift"] is True

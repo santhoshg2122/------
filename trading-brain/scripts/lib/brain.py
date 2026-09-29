@@ -400,7 +400,7 @@ def agent_scores(st: dict) -> dict:
             wrong += call != realised
             break
     drift = cfg["reviewer_drift"]
-    flag = bool((agree_rate is not None and agree_rate > drift["max_agreement"]) or
+    flag = bool((agree_rate is not None and len(verdicts) >= drift["min_verdicts"] and agree_rate > drift["max_agreement"]) or
                 (prec is not None and catches + false_alarms >= 10 and prec < drift["min_catch_precision"]))
     return {"window_cycles": len(cyc),
             "analyst": {"candidates": sum(c["analyst_candidates"] for c in cyc),
