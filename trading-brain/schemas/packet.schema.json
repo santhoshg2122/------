@@ -1,0 +1,77 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "type": "object",
+ "required": [
+  "session",
+  "date",
+  "window_utc",
+  "status",
+  "sha256"
+ ],
+ "properties": {
+  "session": {
+   "enum": [
+    "asia",
+    "london",
+    "newyork"
+   ]
+  },
+  "status": {
+   "enum": [
+    "OK",
+    "STALE",
+    "GAP",
+    "MISSING"
+   ]
+  },
+  "pairs": {
+   "type": "object",
+   "required": [
+    "EURUSD",
+    "GBPUSD"
+   ],
+   "additionalProperties": {
+    "type": "object",
+    "required": [
+     "pip",
+     "bars_m1",
+     "atr14",
+     "session_levels",
+     "swings",
+     "structure",
+     "fvg",
+     "order_blocks",
+     "liquidity",
+     "retracements",
+     "divergences",
+     "displacement",
+     "big_moves"
+    ]
+   }
+  },
+  "cross": {
+   "type": "object",
+   "required": [
+    "corr_m5_60",
+    "lead_lag_min",
+    "leader",
+    "eurgbp_session",
+    "smt"
+   ]
+  }
+ },
+ "if": {
+  "properties": {
+   "status": {
+    "const": "OK"
+   }
+  }
+ },
+ "then": {
+  "required": [
+   "pairs",
+   "cross",
+   "news"
+  ]
+ }
+}

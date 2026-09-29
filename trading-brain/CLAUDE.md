@@ -1,0 +1,53 @@
+# Trading Brain — project rules
+
+EURUSD/GBPUSD multi-agent Pattern Brain. Three analyst agents (Sonnet) read one Chart Packet after every Asia, London and New York close; the curator (Opus) stores what survived into `brain/`, which the next cycle reads first. Learning comes only from scored outcomes.
+
+## Rules every agent follows
+- Pairs: EURUSD, GBPUSD. Pip = 0.0001 for both. Base timeframe M1; M5 and M15 are derived. All times in files are UTC.
+- Sessions (UTC): asia 00:00-08:00, london 07:00-16:00, newyork 13:00-21:00 (`config/sessions.json`).
+- Price evidence comes only from object ids in `data/packets/*.json`. Never estimate a level from raw bars.
+- Agents write only to `runs/<date>_<session>/`. Only brain-curator writes `brain/`. Nobody edits `data/`.
+- `brain/patterns.json` instances, stats and status, `pending_scores.json`, `agent_scores.json` and `cycle_log.json` are written only by `scripts/score_outcomes.py`. The curator edits `hidden_patterns`, `rules.md`, `lessons.md`, the calls in `pair_bias.json`, `research.json` and `journal/`.
+- Every rule, lesson and candidate must be checkable against a packet by an agent that has not seen the session.
+- No web access. No files outside this project. Use `python` (Windows) for every script.
+
+## Models
+Analysts `model: sonnet`, curator `model: opus`, main `/cycle` session `--model opus` (aliases follow the newest versions). If the curator logs `REVIEWER DRIFT`, set `model: opus` in `.claude/agents/chart-critic.md`.
+
+## Pieces
+| Path | Role |
+|---|---|
+| `scripts/export_from_mt5.py` | MT5 → `data/<PAIR>_M1.csv` (3 days) + `data/history/<PAIR>_M1.csv` (60 days), UTC; `--from-csv` seeds from a file |
+| `scripts/build_packet.py` | CSVs → `data/packets/<date>_<session>.json`, never reads past the close; status OK/STALE/GAP/MISSING |
+| `scripts/lib/detectors.py` | swings, BOS/CHoCH, displacement, FVG, OB/breaker, liquidity + sweeps, retracements, RSI/MACD/tick-delta divergence, big moves, lead-lag |
+| `scripts/lib/ingest.py` | MT5 CSV parsing, broker-clock detection, bad-tick clip (kept from the earlier project's tested Stage 0) |
+| `scripts/validate_run.py` | schema + ABORT + packet-hash + cited-id check after every agent (`schemas/`) |
+| `scripts/score_outcomes.py` / `scripts/lib/brain.py` | survival rule, price-vs-object check, signatures, grading, stats, ladder, pair bias, agent scores, weekly merge + precursor mining |
+| `config/detectors.json`, `config/brain.json` | every threshold; calibrate here, never in code |
+| `.claude/agents/`, `.claude/skills/` | the four agents; `/cycle`, `/score`, `/weekly-review` |
+| `scripts/run_cycle.ps1`, `scripts/install_tasks.ps1` | unattended runs via Windows Task Scheduler |
+
+## Decisions (and why)
+- **B001 Numbers are code, judgement is LLM.** The survival rule, the Critic's mods, signatures, grading, stats, ladder, pair-bias rule, merges and agent grading are deterministic in `brain.py`; the curator acts on the report. An LLM computing hit rates would drift.
+- **B002 Every price is checked.** A candidate whose entry/invalidation/target price is not the named object's price (±0.2 pip) is dropped as `... is not the price of a <PAIR> object`. Dropped candidates are still graded as *shadows* so the Critic's catches can be scored.
+- **B003 Hit requires the entry to trade first**: entry touched, then target before invalidation within 8 h = hit; invalidation first (or both in one bar) = miss; entry never touched = expired `not_triggered`. The plan's text did not require the entry fill; without it an untaken retrace entry that ran to target would count as a hit.
+- **B004 Retirement needs n ≥ 10** (`retire_min_n`) for the last-20 test, otherwise a new signature with three misses would retire before it had a chance; the idle rule (10 sessions without an instance) still applies to all.
+- **B005 Big moves are descriptive, not ladder instances.** Their "entry" is defined after the move is known, so storing them as hits would inflate stats. They go to `big_move_attributions` and feed precursor mining.
+- **B006 Big move** = M1 zigzag leg (reversal 1 × ATR14 M15) of ≥ 2.5 × ATR14(M15) within ≤ 90 min; `preceded_by` = objects from 30 min before to 15 min after its start; `first_entry_object` = first FVG/OB in its direction formed after the start.
+- **B007 Packet pruning**: context objects before the session are kept only while they matter at the close (live FVG/OB, unswept pools, last 8 h of structure) plus anything another object cites, so a packet stays under ~1,000 lines for the agents.
+- **B008 Session date** = the UTC date of the session for all three closes (NY closes 21:00 UTC = 02:30 IST, still the same UTC day); the plan's `date -u -d yesterday` would have picked the wrong day.
+- **B009 Critic on Sonnet** (user's choice): independence rests on the blind read in `2_blind.json`, written before Agent 1's file is opened.
+
+## Status
+- Built and tested (`python -m pytest -q`): ingest, detectors, packet, validator, scorer, ladder, pair bias, end-to-end ingest.
+- Not yet done on the PC: MT5 export of GBPUSD (adapt `export_from_mt5.py` to the Trading Journal exporter if preferred), detector calibration against real charts, first interactive `/cycle`, `install_tasks.ps1`.
+
+## First run on the PC
+```
+pip install -r requirements.txt            (plus: pip install MetaTrader5)
+python -m pytest -q
+python scripts/export_from_mt5.py          (MT5 running and logged in)
+python scripts/build_packet.py --session london --date <yesterday>     # compare with your chart; tune config/detectors.json
+claude  →  /cycle london <yesterday>       # read runs/<date>_london/ and brain/journal/
+powershell -ExecutionPolicy Bypass -File scripts\install_tasks.ps1
+```

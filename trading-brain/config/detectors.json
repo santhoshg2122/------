@@ -1,0 +1,19 @@
+{
+  "_note": "Every detector threshold (plan section 4). Calibrate here against your own charts; never in code.",
+  "timeframes": ["M1", "M5", "M15"],
+  "atr_period": 14,
+  "swing_bars_each_side": 3,
+  "displacement": {"min_range_atr": 2.0, "min_body_frac": 0.70},
+  "fvg": {"min_size_atr": 0.4},
+  "order_block": {"lookback_bars": 10, "displacement_within_bars": 3},
+  "liquidity": {"equal_tol_pips": 1.5, "reclaim_within_bars": 3, "equal_tf": "M5"},
+  "retracement": {"tf": "M5", "levels": [0.5, 0.618, 0.79], "min_leg_atr": 3.0, "max_legs": 3},
+  "divergence": {"tfs": ["M5", "M15"], "min_bars_apart": 5, "max_bars_apart": 60, "rsi_period": 14, "macd": [12, 26, 9]},
+  "big_move": {"zigzag_reversal_atr_m15": 1.0, "min_move_atr_m15": 2.5, "max_minutes": 90,
+               "preceded_window_min": [-30, 15]},
+  "smt": {"max_minutes_apart": 5, "equal_pool_match_minutes": 60},
+  "cross": {"corr_m5_bars": 60, "max_lag_min": 5, "eurgbp_flat_pct": 0.03},
+  "news": {"blackout_minutes": 15, "impact": ["high"]},
+  "m1_objects_in_window_only": true,
+  "context_keep_hours": 8
+}

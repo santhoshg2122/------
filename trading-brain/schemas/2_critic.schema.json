@@ -1,0 +1,184 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "type": "object",
+ "required": [
+  "agent",
+  "packet_sha256",
+  "status"
+ ],
+ "properties": {
+  "agent": {
+   "const": "chart-critic"
+  },
+  "packet_sha256": {
+   "type": "string"
+  },
+  "status": {
+   "enum": [
+    "OK",
+    "ABORT"
+   ]
+  },
+  "disputes": {
+   "type": "array"
+  },
+  "audit": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "candidate",
+     "field",
+     "verdict"
+    ],
+    "properties": {
+     "verdict": {
+      "enum": [
+       "confirmed",
+       "refuted",
+       "unverifiable"
+      ]
+     }
+    }
+   }
+  },
+  "missed_objects": {
+   "type": "array"
+  },
+  "new_candidates": {
+   "type": "array",
+   "items": {
+    "$ref": "#/$defs/cand"
+   }
+  },
+  "opposite_case": {
+   "type": "object"
+  },
+  "hidden_patterns": {
+   "type": "array"
+  },
+  "verdicts": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "candidate",
+     "verdict"
+    ],
+    "properties": {
+     "verdict": {
+      "enum": [
+       "AGREE",
+       "AGREE_WITH_MODS",
+       "DISAGREE",
+       "ABSTAIN"
+      ]
+     },
+     "confidence": {
+      "type": "number"
+     },
+     "mods": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "field",
+        "new_object"
+       ]
+      }
+     }
+    }
+   }
+  }
+ },
+ "$defs": {
+  "cand": {
+   "type": "object",
+   "required": [
+    "id",
+    "pair",
+    "model",
+    "direction",
+    "entry",
+    "invalidation",
+    "target"
+   ],
+   "properties": {
+    "id": {
+     "type": "string"
+    },
+    "pair": {
+     "enum": [
+      "EURUSD",
+      "GBPUSD"
+     ]
+    },
+    "model": {
+     "type": "string"
+    },
+    "direction": {
+     "enum": [
+      "long",
+      "short"
+     ]
+    },
+    "thesis": {
+     "type": "string"
+    },
+    "objects": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "families": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "entry": {
+     "$ref": "#/$defs/lvl"
+    },
+    "invalidation": {
+     "$ref": "#/$defs/lvl"
+    },
+    "target": {
+     "$ref": "#/$defs/lvl"
+    },
+    "risk_pips": {
+     "type": "number"
+    },
+    "reward_pips": {
+     "type": "number"
+    },
+    "window_utc": {
+     "type": "array"
+    },
+    "confidence": {
+     "type": "number",
+     "minimum": 0,
+     "maximum": 1
+    },
+    "falsifier": {
+     "type": "string"
+    }
+   }
+  },
+  "lvl": {
+   "type": "object",
+   "required": [
+    "object",
+    "price"
+   ],
+   "properties": {
+    "object": {
+     "type": "string"
+    },
+    "price": {
+     "type": "number"
+    }
+   }
+  }
+ }
+}

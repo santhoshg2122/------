@@ -1,0 +1,19 @@
+{
+  "_note": "The only place the Brain's thresholds live (plan sections 9 and 11). scripts/score_outcomes.py applies them; the curator acts on its output.",
+  "scoring": {"horizon_hours": 8, "same_bar_both_touched": "miss"},
+  "ladder": {
+    "validated": {"min_n": 15, "min_hit_rate": 0.55, "min_avg_rr": 1.5},
+    "core": {"min_n": 40, "min_hit_rate": 0.55, "min_avg_rr": 1.5},
+    "retire_last20_below": 0.40,
+    "retire_min_n": 10,
+    "retire_idle_sessions": 10,
+    "revive_fresh_instances": 5,
+    "revive_min_hit_rate": 0.55
+  },
+  "pair_bias": {"lead_by": 0.10, "min_n_each": 10, "neither_below": 0.45, "window": 20},
+  "merge_signatures_object_overlap": 0.80,
+  "agent_grading_window_cycles": 200,
+  "reviewer_drift": {"max_agreement": 0.90, "min_catch_precision": 0.40},
+  "precursor_mining": {"sessions": 20, "min_share": 0.60, "min_n": 12},
+  "backtest_pass": {"min_hit_rate": 0.55, "min_n": 15}
+}
