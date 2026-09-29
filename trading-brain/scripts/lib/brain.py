@@ -56,39 +56,37 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-# ------------------------------------------------------------------ candle references (B011)
+# ------------------------------------------------------------------ candle references (B011, M1 only since B012)
 
-BAR_REF = re.compile(r"^bar:(EURUSD|GBPUSD):(M1|M5|M15):(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):(open|high|low|close)$")
-BAR_REF_ANY = re.compile(r"bar:[A-Z]{6}:M\d+:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:[a-z]+")
-TF_MIN = {"M1": 1, "M5": 5, "M15": 15}
+BAR_REF = re.compile(r"^bar:(EURUSD|GBPUSD):(M1):(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):(open|high|low|close)$")
+BAR_REF_LOOSE = re.compile(r"^bar:([A-Z]{6}):([A-Z]\d+):(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):([a-z]+)$")
+BAR_REF_ANY = re.compile(r"bar:[A-Z]{6}:[A-Z]\d+:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:[a-z]+")
 FIELD_COL = {"open": 1, "high": 2, "low": 3, "close": 4}
 
 
 def bar_index(packet: dict) -> dict:
-    """(pair, tf, 'YYYY-MM-DD HH:MM') -> bar row, from the window arrays and the M5/M15 context arrays."""
+    """(pair, 'M1', 'YYYY-MM-DD HH:MM') -> bar row, from bars_m1 (session) and bars_m1_context (before it)."""
     out, date = {}, packet["date"]
     for pair, pk in (packet.get("pairs") or {}).items():
-        for tf in TF_MIN:
-            for row in pk.get(f"bars_{tf.lower()}", []):
-                out[(pair, tf, f"{date} {row[0]}" if len(row[0]) == 5 else row[0])] = row
-            for row in pk.get(f"bars_{tf.lower()}_context", []):
-                out[(pair, tf, row[0])] = row
+        for row in pk.get("bars_m1", []):
+            out[(pair, "M1", f"{date} {row[0]}" if len(row[0]) == 5 else row[0])] = row
+        for row in pk.get("bars_m1_context", []):
+            out[(pair, "M1", row[0])] = row
     return out
 
 
 def resolve_bar(ref: str, packet: dict, bidx: dict | None = None) -> tuple[float | None, str]:
     """Price of a candle reference, or (None, why it is not usable)."""
+    loose = BAR_REF_LOOSE.match(ref or "")
+    if loose and loose.group(2) != "M1":
+        return None, f"{ref}: only M1 candles can be cited"
     m = BAR_REF.match(ref or "")
     if not m:
-        return None, f"{ref!r} is not a valid bar reference (bar:<PAIR>:<M1|M5|M15>:<YYYY-MM-DD HH:MM>:<open|high|low|close>)"
+        return None, f"{ref!r} is not a valid bar reference (bar:<EURUSD|GBPUSD>:M1:<YYYY-MM-DD HH:MM>:<open|high|low|close>)"
     pair, tf, ts, field = m.groups()
-    start = pd.Timestamp(f"{packet['date']} {packet['window_utc'][0]}", tz="UTC")
     end = pd.Timestamp(f"{packet['date']} {packet['window_utc'][1]}", tz="UTC")
-    t = pd.Timestamp(ts, tz="UTC")
-    if t + pd.Timedelta(minutes=TF_MIN[tf]) > end:
+    if pd.Timestamp(ts, tz="UTC") + pd.Timedelta(minutes=1) > end:
         return None, f"{ref} is after the session close"
-    if tf == "M1" and t < start:
-        return None, f"{ref}: M1 bars exist only for the session window"
     row = (bidx if bidx is not None else bar_index(packet)).get((pair, tf, ts))
     if row is None:
         return None, f"{ref} is not in the packet"

@@ -67,7 +67,7 @@
      "type": "array",
      "items": {
       "type": "string",
-      "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-SMT-\\d+|bar:(EURUSD|GBPUSD):(M1|M5|M15):\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$"
+      "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-SMT-\\d+|bar:(EURUSD|GBPUSD):M1:\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$"
      }
     },
     "families": {
@@ -118,8 +118,8 @@
    "properties": {
     "object": {
      "type": "string",
-     "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-SMT-\\d+|bar:(EURUSD|GBPUSD):(M1|M5|M15):\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$",
-     "description": "an object id, or a candle: bar:<PAIR>:<M1|M5|M15>:<YYYY-MM-DD HH:MM>:<open|high|low|close>"
+     "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-SMT-\\d+|bar:(EURUSD|GBPUSD):M1:\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$",
+     "description": "an object id, or a candle: bar:<PAIR>:M1:<YYYY-MM-DD HH:MM>:<open|high|low|close>"
     },
     "price": {
      "type": "number"

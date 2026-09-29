@@ -242,19 +242,20 @@ def test_reviewer_drift_needs_sample():
     assert brain.agent_scores(st)["reviewer_drift"] is True
 
 
-# ------------------------------------------------------------------ candle references (B011)
+# ------------------------------------------------------------------ candle references (B011; M1 only since B012)
 
 def candle_cand(pk: dict, cid: str, off_pips: float = 0.0, basis: str | None = "wick_rejection") -> dict:
-    """A short from a window M5 candle's high, stop at a later candle's high + target at a context M15 low."""
+    """A short from a session M1 candle's high; the entry is a context M1 candle's close, so both kinds are exercised."""
     e = pk["pairs"]["EURUSD"]
-    row = max(e["bars_m5"][10:40], key=lambda r: r[2])            # a clear M5 high in the window
-    ctx = min(e["bars_m15_context"], key=lambda r: r[3])          # lowest M15 context candle
-    ent = f"bar:EURUSD:M5:{DATE} {row[0]}:close"
-    inv = f"bar:EURUSD:M5:{DATE} {row[0]}:high"
-    tgt = f"bar:EURUSD:M15:{ctx[0]}:low"
+    hi = max(e["bars_m1"][60:200], key=lambda r: r[2])            # a clear M1 high in the session
+    ctx = e["bars_m1_context"][-30]                               # an M1 candle from before the session
+    lo = min(e["bars_m1_context"], key=lambda r: r[3])            # lowest context candle
+    ent = f"bar:EURUSD:M1:{ctx[0]}:close"
+    inv = f"bar:EURUSD:M1:{DATE} {hi[0]}:high"
+    tgt = f"bar:EURUSD:M1:{lo[0]}:low"
     c = {"id": cid, "pair": "EURUSD", "model": "candle_wick_rejection", "direction": "short", "thesis": "t",
-         "objects": [inv], "entry": {"object": ent, "price": round(row[4] + off_pips * P, 5)},
-         "invalidation": {"object": inv, "price": row[2]}, "target": {"object": tgt, "price": ctx[3]},
+         "objects": [inv], "entry": {"object": ent, "price": round(ctx[4] + off_pips * P, 5)},
+         "invalidation": {"object": inv, "price": hi[2]}, "target": {"object": tgt, "price": lo[3]},
          "confidence": 0.5, "falsifier": "f"}
     if basis:
         c["candle_basis"] = basis
@@ -267,6 +268,7 @@ def test_bar_reference_levels(data, tmp_path, monkeypatch):
     pk = json.loads(pp.read_text())
     run = tmp_path / "runs" / f"{DATE}_london"
     good, off = candle_cand(pk, "C3"), candle_cand(pk, "C4", off_pips=0.5)
+    assert good["entry"]["object"] < f"bar:EURUSD:M1:{DATE} 07:00"   # the entry is a context candle
     fake_run(pk, run, extra=(good, off))
     assert V.validate(run / "1_analyst.json", pp) is None          # both refs exist; the price check is the scorer's
     st = brain.load_state()
@@ -275,21 +277,23 @@ def test_bar_reference_levels(data, tmp_path, monkeypatch):
     assert {"id": "C4", "reason": "entry is not the close of that candle"} in rep["dropped"]
     sig = next(s for s in rep["stored_signatures"] if s.startswith("candle_wick_rejection"))
     parts = sig.split("|")
-    assert parts[3] == "M5" and "BAR" in parts[4].split("+") and parts[5] == "wick_rejection"
+    assert parts[3] == "M1" and parts[4] == "BAR" and parts[5] == "wick_rejection"
     assert st["patterns"]["signatures"][sig]["candle_basis"] == "wick_rejection"
 
 
 def test_signature_without_basis_unchanged():
     assert brain.signature("m", "EURUSD", "london", "M5", ["FVG", "LQ"]) == "m|EURUSD|london|M5|FVG+LQ"
-    assert brain.signature("m", "EURUSD", "london", "M5", ["BAR"], "engulfing") == "m|EURUSD|london|M5|BAR|engulfing"
+    assert brain.signature("m", "EURUSD", "london", "M1", ["BAR"], "engulfing") == "m|EURUSD|london|M1|BAR|engulfing"
 
 
 @pytest.mark.parametrize("ref,why", [
+    (f"bar:EURUSD:M5:{DATE} 09:00:high", "only M1 candles can be cited"),
+    (f"bar:EURUSD:M15:{DATE} 09:00:low", "only M1 candles can be cited"),
+    ("bar:GBPUSD:M5:2026-09-28 22:00:close", "only M1 candles can be cited"),   # context, but not M1
     (f"bar:EURUSD:M1:{DATE} 16:00:high", "after the session close"),
-    (f"bar:EURUSD:M15:{DATE} 15:50:low", "after the session close"),          # would close at 16:05
-    (f"bar:EURUSD:M5:{DATE} 03:07:high", "not in the packet"),                # not a 5-minute boundary
-    ("bar:EURUSD:M1:2026-09-28 22:00:high", "M1 bars exist only for the session window"),
-    ("bar:EURUSD:M5:2026-09-20 10:00:high", "not in the packet"),              # before the context
+    (f"bar:EURUSD:M1:{DATE} 18:30:low", "after the session close"),
+    ("bar:EURUSD:M1:2026-09-20 10:00:high", "not in the packet"),              # before the context
+    (f"bar:EURUSD:M1:{DATE} 09:00:mid", "not a valid bar reference"),
 ])
 def test_validator_rejects_bad_bar_refs(data, tmp_path, ref, why):
     pp = B.build("london", DATE, data)
@@ -302,24 +306,21 @@ def test_validator_rejects_bad_bar_refs(data, tmp_path, ref, why):
     assert why in V.validate(run / "1_analyst.json", pp)
 
 
-def test_bar_field_must_be_valid(data, tmp_path):
+def test_m1_context_ref_is_valid(data, tmp_path):
     pp = B.build("london", DATE, data)
-    run = tmp_path / "r"
-    fake_run(json.loads(pp.read_text()), run)
-    a = json.loads((run / "1_analyst.json").read_text())
-    a["candidates"][0]["target"] = {"object": f"bar:EURUSD:M5:{DATE} 09:00:mid", "price": 1.1}
-    (run / "1_analyst.json").write_text(json.dumps(a))
-    assert "breaks its schema" in V.validate(run / "1_analyst.json", pp)
+    pk = json.loads(pp.read_text())
+    row = pk["pairs"]["GBPUSD"]["bars_m1_context"][0]
+    assert brain.resolve_bar(f"bar:GBPUSD:M1:{row[0]}:high", pk) == (row[2], "")
 
 
-def test_no_candle_after_close_or_inside_context(data):
-    pk = json.loads(B.build("london", DATE, data).read_text())
+def test_packet_m1_only_and_nothing_after_close(data):
+    pp = B.build("london", DATE, data)
+    pk = json.loads(pp.read_text())
+    hours = json.loads((B.ROOT / "config" / "sessions.json").read_text())["context_hours"]
+    start, end = pd.Timestamp(f"{DATE} 07:00"), pd.Timestamp(f"{DATE} 16:00")
     for e in pk["pairs"].values():
-        for tf, mins in (("m1", 1), ("m5", 5), ("m15", 15)):
-            for r in e[f"bars_{tf}"]:
-                t = pd.Timestamp(f"{DATE} {r[0]}")
-                assert pd.Timestamp(f"{DATE} 07:00") <= t and t + pd.Timedelta(minutes=mins) <= pd.Timestamp(f"{DATE} 16:00")
-        for tf in ("m5", "m15"):
-            ctx = e[f"bars_{tf}_context"]
-            assert ctx and all(pd.Timestamp(r[0]) < pd.Timestamp(f"{DATE} 07:00") for r in ctx)
-            assert pd.Timestamp(ctx[0][0]) >= pd.Timestamp(f"{DATE} 07:00") - pd.Timedelta(hours=24)
+        assert not [k for k in e if k.startswith(("bars_m5", "bars_m15"))]
+        assert all(start <= pd.Timestamp(f"{DATE} {r[0]}") < end for r in e["bars_m1"])
+        ctx = [pd.Timestamp(r[0]) for r in e["bars_m1_context"]]
+        assert ctx and max(ctx) < start and min(ctx) >= start - pd.Timedelta(hours=hours)
+    assert len(pp.read_text().splitlines()) < 1200

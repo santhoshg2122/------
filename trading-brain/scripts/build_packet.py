@@ -220,10 +220,10 @@ def pair_objects(m1: pd.DataFrame, start, end, date: str, session: str, pair: st
 
     return {
         "pip": pip,
-        "bars_m1": rows(tfs["M1"]), "bars_m5": rows(tfs["M5"]), "bars_m15": rows(tfs["M15"]),
-        # context candles before the window (full timestamps); M1 is window-only to keep the packet small
-        "bars_m5_context": rows(tfs["M5"], ctx_lo, start, "%Y-%m-%d %H:%M"),
-        "bars_m15_context": rows(tfs["M15"], ctx_lo, start, "%Y-%m-%d %H:%M"),
+        # the agents read M1 candles only (B012): the session window, and the context before it with full timestamps.
+        # M5/M15 are still built above for the detectors; they are not given to the agents as candles.
+        "bars_m1": rows(tfs["M1"]),
+        "bars_m1_context": rows(tfs["M1"], ctx_lo, start, "%Y-%m-%d %H:%M"),
         "atr14": {tf.lower(): r5(a.iat[-1]) for tf, a in atrs.items() if len(a)},
         "session_levels": {k: r5(v) for k, v in lv.items()},
         **out, "liquidity": liq, "big_moves": bms,

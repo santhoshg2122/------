@@ -3,7 +3,7 @@
 EURUSD/GBPUSD multi-agent Pattern Brain. Three analyst agents (Sonnet) read one Chart Packet after every Asia, London and New York close; the curator (Opus) stores what survived into `brain/`, which the next cycle reads first. Learning comes only from scored outcomes.
 
 ## Rules every agent follows
-- Agents read the candles themselves; detector objects are hints (B011). Never invent or round a price: every level is an exact candle field (`bar:` ref) or an exact object price, cited.
+- Agents read M1 candles only (context + session) and read the higher timeframe from them; detector objects are hints (B011, B012). Never invent or round a price: every level is an exact candle field (`bar:` ref) or an exact object price, cited.
 - Pairs: EURUSD, GBPUSD. Pip = 0.0001 for both. Base timeframe M1; M5 and M15 are derived. All times in files are UTC.
 - Sessions (UTC): asia 00:00-08:00, london 07:00-16:00, newyork 13:00-21:00 (`config/sessions.json`).
 - Price evidence comes only from `data/packets/*.json`: candles or object ids.
@@ -22,7 +22,7 @@ Analysts `model: sonnet` (resolved to claude-sonnet-5-5 in the first live run), 
 | `scripts/build_packet.py` | CSVs → `data/packets/<date>_<session>.json`, never reads past the close; status OK/STALE/GAP/MISSING |
 | `scripts/lib/detectors.py` | swings, BOS/CHoCH, displacement, FVG, OB/breaker, liquidity + sweeps, retracements, RSI/MACD/tick-delta divergence, big moves, lead-lag |
 | `scripts/lib/ingest.py` | MT5 CSV parsing, broker-clock detection, bad-tick clip (kept from the earlier project's tested Stage 0) |
-| `scripts/validate_run.py` | schema + ABORT + packet-hash + cited-id + candle-ref check after every agent (`schemas/`) |
+| `scripts/validate_run.py` | schema + ABORT + packet-hash + cited-id + M1 candle-ref check after every agent (`schemas/`) |
 | `scripts/score_outcomes.py` / `scripts/lib/brain.py` | survival rule, price-vs-object check, signatures, grading, stats, ladder, pair bias, agent scores, weekly merge + precursor mining |
 | `config/detectors.json`, `config/brain.json` | every threshold; calibrate here, never in code |
 | `.claude/agents/`, `.claude/skills/` | the four agents; `/cycle`, `/score`, `/weekly-review` |
@@ -40,6 +40,7 @@ Analysts `model: sonnet` (resolved to claude-sonnet-5-5 in the first live run), 
 - **B009 Critic on Sonnet** (user's choice): independence rests on the blind read in `2_blind.json`, written before Agent 1's file is opened.
 - **B010 Trust the folder once.** Claude Code ignores `.claude/settings.json` permission rules in an untrusted folder; the scheduled runs therefore also pass `--allowedTools`, and the first interactive `claude` in the folder must accept the trust prompt.
 - **B011 Agents read the candles; detector objects are hints** (user decision, 2026-09-29). The packet carries the candles (`bars_m15/m5/m1` for the session, `bars_m15_context`/`bars_m5_context` for the 24 h before it) and the agents analyse them first, M15 → M5 → M1, writing a `candle_reading` per pair. Detector objects stay in the packet as "hints: pre-computed for convenience, verify on the candles". A level may cite an object id or a candle, `bar:<PAIR>:<M1|M5|M15>:<YYYY-MM-DD HH:MM>:<open|high|low|close>`; prices are still verified — `brain.resolve_bar` (shared by `validate_run.py` and the scorer) reads the candle from the packet, refuses anything after the close or an M1 candle outside the window, and a price off by more than 0.2 pip drops the candidate (`<field> is not the <bar field> of that candle`). Candle refs count as family `BAR`; an optional `candle_basis` becomes the signature's last segment so candle-read patterns get their own statistics (signatures without it are unchanged). Scoring is still code: grading, stats, ladder, pair bias and agent scores are untouched.
+- **B012 Agents read M1 candles only** (user decision, 2026-09-29; supersedes the candle arrays of B011). The packet's only candle arrays are `bars_m1` (session, `HH:MM` rows) and `bars_m1_context` (every M1 candle from `context_hours` = **24** before the session to its start, full timestamps); the synthetic packets are 1,020–1,107 lines, under the 1,200 limit, so 24 h was kept. The agents work out the higher-timeframe picture (range, trend, key highs/lows, acceptance vs rejection) from the M1 candles and cite them. Candle refs are `bar:<PAIR>:M1:...` only — session or context; an M5/M15 ref fails validation with "only M1 candles can be cited" (the validator resolves candle refs before the schema so the reason is clear). The detectors still build M5/M15 internally, so objects on those timeframes remain as hints. Price check (±0.2 pip), candle_basis, candle_reading, candle_audit and all scoring are unchanged.
 
 ## Status
 - Built and tested (`python -m pytest -q`): ingest, detectors, packet, validator, scorer, ladder, pair bias, end-to-end ingest.
