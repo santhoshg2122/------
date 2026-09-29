@@ -211,14 +211,19 @@ def pair_objects(m1: pd.DataFrame, start, end, date: str, session: str, pair: st
 
     prune(out, liq, bms, start, dcfg)
 
-    def rows(df):
-        w = df[(df["time"] >= start) & (df["time"] < end)]
-        return [[t.strftime("%H:%M"), r5(o), r5(h), r5(l), r5(c), int(v)]
+    def rows(df, lo=start, hi=end, fmt="%H:%M"):
+        w = df[(df["time"] >= lo) & (df["time"] < hi)]
+        return [[t.strftime(fmt), r5(o), r5(h), r5(l), r5(c), int(v)]
                 for t, o, h, l, c, v in zip(w["time"], w["open"], w["high"], w["low"], w["close"], w["tick_volume"])]
+
+    ctx_lo = start - pd.Timedelta(hours=scfg["context_hours"])
 
     return {
         "pip": pip,
         "bars_m1": rows(tfs["M1"]), "bars_m5": rows(tfs["M5"]), "bars_m15": rows(tfs["M15"]),
+        # context candles before the window (full timestamps); M1 is window-only to keep the packet small
+        "bars_m5_context": rows(tfs["M5"], ctx_lo, start, "%Y-%m-%d %H:%M"),
+        "bars_m15_context": rows(tfs["M15"], ctx_lo, start, "%Y-%m-%d %H:%M"),
         "atr14": {tf.lower(): r5(a.iat[-1]) for tf, a in atrs.items() if len(a)},
         "session_levels": {k: r5(v) for k, v in lv.items()},
         **out, "liquidity": liq, "big_moves": bms,

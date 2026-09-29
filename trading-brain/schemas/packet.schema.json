@@ -45,7 +45,11 @@
      "retracements",
      "divergences",
      "displacement",
-     "big_moves"
+     "big_moves",
+     "bars_m5",
+     "bars_m15",
+     "bars_m5_context",
+     "bars_m15_context"
     ]
    }
   },

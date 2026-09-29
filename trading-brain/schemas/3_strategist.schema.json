@@ -4,7 +4,8 @@
  "required": [
   "agent",
   "packet_sha256",
-  "status"
+  "status",
+  "candle_reading"
  ],
  "properties": {
   "agent": {
@@ -94,6 +95,23 @@
   },
   "rules": {
    "type": "array"
+  },
+  "candle_reading": {
+   "type": "object",
+   "required": [
+    "EURUSD",
+    "GBPUSD"
+   ],
+   "properties": {
+    "EURUSD": {
+     "type": "string",
+     "minLength": 1
+    },
+    "GBPUSD": {
+     "type": "string",
+     "minLength": 1
+    }
+   }
   }
  },
  "$defs": {
@@ -133,7 +151,8 @@
     "objects": {
      "type": "array",
      "items": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-SMT-\\d+|bar:(EURUSD|GBPUSD):(M1|M5|M15):\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$"
      }
     },
     "families": {
@@ -167,6 +186,11 @@
     },
     "falsifier": {
      "type": "string"
+    },
+    "candle_basis": {
+     "type": "string",
+     "pattern": "^[a-z][a-z0-9_]{2,40}$",
+     "description": "e.g. wick_rejection, engulfing, displacement_close, inside_bar, momentum_stall; becomes the signature's last segment"
     }
    }
   },
@@ -178,7 +202,9 @@
    ],
    "properties": {
     "object": {
-     "type": "string"
+     "type": "string",
+     "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-SMT-\\d+|bar:(EURUSD|GBPUSD):(M1|M5|M15):\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$",
+     "description": "an object id, or a candle: bar:<PAIR>:<M1|M5|M15>:<YYYY-MM-DD HH:MM>:<open|high|low|close>"
     },
     "price": {
      "type": "number"

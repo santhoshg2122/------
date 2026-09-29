@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import re
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,11 +56,86 @@ def now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# ------------------------------------------------------------------ candle references (B011)
+
+BAR_REF = re.compile(r"^bar:(EURUSD|GBPUSD):(M1|M5|M15):(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):(open|high|low|close)$")
+BAR_REF_ANY = re.compile(r"bar:[A-Z]{6}:M\d+:\d{4}-\d{2}-\d{2} \d{2}:\d{2}:[a-z]+")
+TF_MIN = {"M1": 1, "M5": 5, "M15": 15}
+FIELD_COL = {"open": 1, "high": 2, "low": 3, "close": 4}
+
+
+def bar_index(packet: dict) -> dict:
+    """(pair, tf, 'YYYY-MM-DD HH:MM') -> bar row, from the window arrays and the M5/M15 context arrays."""
+    out, date = {}, packet["date"]
+    for pair, pk in (packet.get("pairs") or {}).items():
+        for tf in TF_MIN:
+            for row in pk.get(f"bars_{tf.lower()}", []):
+                out[(pair, tf, f"{date} {row[0]}" if len(row[0]) == 5 else row[0])] = row
+            for row in pk.get(f"bars_{tf.lower()}_context", []):
+                out[(pair, tf, row[0])] = row
+    return out
+
+
+def resolve_bar(ref: str, packet: dict, bidx: dict | None = None) -> tuple[float | None, str]:
+    """Price of a candle reference, or (None, why it is not usable)."""
+    m = BAR_REF.match(ref or "")
+    if not m:
+        return None, f"{ref!r} is not a valid bar reference (bar:<PAIR>:<M1|M5|M15>:<YYYY-MM-DD HH:MM>:<open|high|low|close>)"
+    pair, tf, ts, field = m.groups()
+    start = pd.Timestamp(f"{packet['date']} {packet['window_utc'][0]}", tz="UTC")
+    end = pd.Timestamp(f"{packet['date']} {packet['window_utc'][1]}", tz="UTC")
+    t = pd.Timestamp(ts, tz="UTC")
+    if t + pd.Timedelta(minutes=TF_MIN[tf]) > end:
+        return None, f"{ref} is after the session close"
+    if tf == "M1" and t < start:
+        return None, f"{ref}: M1 bars exist only for the session window"
+    row = (bidx if bidx is not None else bar_index(packet)).get((pair, tf, ts))
+    if row is None:
+        return None, f"{ref} is not in the packet"
+    return float(row[FIELD_COL[field]]), ""
+
+
+class LevelIndex(dict):
+    """Object ids -> {pair, kind, tf, prices}; bar references are resolved from the packet's candles on demand."""
+
+    def __init__(self, packet: dict):
+        super().__init__()
+        self.packet, self._bars = packet, None
+
+    def _bar(self, key):
+        if not (isinstance(key, str) and key.startswith("bar:")):
+            return None
+        if self._bars is None:
+            self._bars = bar_index(self.packet)
+        price, _ = resolve_bar(key, self.packet, self._bars)
+        if price is None:
+            return None
+        pair, tf, _, field = BAR_REF.match(key).groups()
+        v = {"pair": pair, "kind": "BAR", "tf": tf, "field": field, "prices": {field: price}}
+        dict.__setitem__(self, key, v)
+        return v
+
+    def get(self, key, default=None):
+        v = dict.get(self, key)
+        if v is None:
+            v = self._bar(key)
+        return default if v is None else v
+
+    def __getitem__(self, key):
+        v = self.get(key)
+        if v is None:
+            raise KeyError(key)
+        return v
+
+    def __contains__(self, key):
+        return dict.__contains__(self, key) or self._bar(key) is not None
+
+
 # ------------------------------------------------------------------ packet objects
 
-def object_index(packet: dict) -> dict:
-    """id -> {pair, kind, tf, prices{...}} for every object in a packet."""
-    idx = {}
+def object_index(packet: dict) -> LevelIndex:
+    """id -> {pair, kind, tf, prices{...}} for every object in a packet, plus bar references on demand."""
+    idx = LevelIndex(packet)
     for pair, pk in (packet.get("pairs") or {}).items():
         for coll in ("swings", "structure", "displacement", "fvg", "order_blocks", "liquidity", "retracements", "divergences", "big_moves"):
             for o in pk.get(coll, []):
@@ -85,14 +161,18 @@ def price_matches(obj: dict, price: float, pip: float = 0.0001, tol_pips: float 
 def families_of(object_ids: list[str]) -> list[str]:
     fams = set()
     for oid in object_ids:
+        if oid.startswith("bar:"):
+            fams.add("BAR")
+            continue
         parts = oid.split("-")
         if len(parts) >= 3 and parts[1] in FAMILY_OF:
             fams.add(FAMILY_OF[parts[1]])
     return sorted(fams)
 
 
-def signature(model: str, pair: str, session: str, tf: str, fams: list[str]) -> str:
-    return f"{model}|{pair}|{session}|{tf}|{'+'.join(fams)}"
+def signature(model: str, pair: str, session: str, tf: str, fams: list[str], candle_basis: str | None = None) -> str:
+    base = f"{model}|{pair}|{session}|{tf}|{'+'.join(fams)}"
+    return f"{base}|{candle_basis}" if candle_basis else base
 
 
 # ------------------------------------------------------------------ resolve a run
@@ -135,7 +215,7 @@ def resolve_run(run_dir: Path, packet: dict) -> dict:
                 for m in v.get("mods", []):
                     f, oid = m.get("field"), m.get("new_object")
                     if f in ("entry", "invalidation", "target") and oid in idx:
-                        pr = idx[oid]["prices"]
+                        pr = idx[oid]["prices"]  # a bar reference has exactly one price: its candle field
                         c[f] = {"object": oid, "price": pr.get("mid", pr.get("price", next(iter(pr.values()), None)))}
             if reason is None and audit3.get(cid, {}).get("cross_pair") == "conflicts":
                 reason = "strategist: cross-pair conflict"
@@ -144,12 +224,20 @@ def resolve_run(run_dir: Path, packet: dict) -> dict:
                 reason = "not audited by strategist"
             elif audit3[cid].get("cross_pair") == "conflicts":
                 reason = "strategist: cross-pair conflict"
-        # object/price integrity: every level must be an object of this pair at that price
+        # price integrity: every level is an object of this pair at that price, or that candle's field exactly
         if reason is None:
             for f in ("entry", "invalidation", "target"):
-                o = idx.get((c.get(f) or {}).get("object"))
-                if o is None or o["pair"] != c.get("pair") or not price_matches(o, float(c[f]["price"])):
+                ref = (c.get(f) or {}).get("object")
+                o = idx.get(ref)
+                if isinstance(ref, str) and ref.startswith("bar:") and o is None:
+                    reason = f"{f}: {resolve_bar(ref, packet)[1]}"
+                    break
+                if o is None or o["pair"] != c.get("pair"):
                     reason = f"{f} is not the price of a {c.get('pair')} object in the packet"
+                    break
+                if not price_matches(o, float(c[f]["price"])):
+                    reason = (f"{f} is not the {o['field']} of that candle" if o["kind"] == "BAR"
+                              else f"{f} is not the price of a {c.get('pair')} object in the packet")
                     break
         if reason is None:
             conf = audit3.get(cid, {}).get("confidence", verdicts.get(cid, {}).get("confidence", c.get("confidence")))
@@ -178,10 +266,13 @@ def ingest_run(st: dict, run_dir: Path, packet_path: Path) -> dict:
                 entry, inv, tgt = (float(c[f]["price"]) for f in ("entry", "invalidation", "target"))
             except (KeyError, TypeError, ValueError):
                 continue
-            objs = [o for o in c.get("objects", []) if o in idx] or [c[f]["object"] for f in ("entry", "invalidation", "target")]
+            levels = [c[f]["object"] for f in ("entry", "invalidation", "target")]
+            objs = [o for o in c.get("objects", []) if o in idx]
+            objs += [o for o in levels if o not in objs]
             fams = families_of(objs)
             tf = idx.get(c["entry"]["object"], {}).get("tf", "M1")
-            sig = signature(c.get("model", "other"), c["pair"], session, tf, fams)
+            basis = c.get("candle_basis") or None
+            sig = signature(c.get("model", "other"), c["pair"], session, tf, fams, basis)
             inst = {"id": f"{key}:{c['id']}", "date": date, "session": session, "packet": str(packet_path),
                     "pair": c["pair"], "objects": objs, "direction": c.get("direction"), "entry": entry,
                     "invalidation": inv, "target": tgt, "flagged_at": end, "outcome": "pending", "move_pips": 0,
@@ -192,6 +283,7 @@ def ingest_run(st: dict, run_dir: Path, packet_path: Path) -> dict:
             if kind == "instance":
                 s = st["patterns"]["signatures"].setdefault(sig, {
                     "model": c.get("model", "other"), "pair": c["pair"], "session": session, "tf": tf, "families": fams,
+                    "candle_basis": basis,
                     "status": "candidate", "first_seen": date, "last_seen": date, "status_changed": date,
                     "stats": {}, "instances": []})
                 s["last_seen"] = date
@@ -438,7 +530,8 @@ def merge_signatures(st: dict) -> list[dict]:
         if a in gone or b in gone:
             continue
         A, Bs = sigs[a], sigs[b]
-        if (A["model"], A["pair"], A["session"]) != (Bs["model"], Bs["pair"], Bs["session"]):
+        if (A["model"], A["pair"], A["session"], A.get("candle_basis")) != \
+                (Bs["model"], Bs["pair"], Bs["session"], Bs.get("candle_basis")):
             continue
         fa, fb = set(A["families"]), set(Bs["families"])
         if len(fa | fb) and len(fa & fb) / len(fa | fb) >= thr:

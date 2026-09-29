@@ -5,7 +5,9 @@
     python scripts/validate_run.py data/packets/2026-09-29_london.json          # a packet against its schema
 
 Fails (exit 1, one line saying why) when the file is missing or not JSON, breaks its schema, says ABORT,
-carries a different packet hash, or cites an object id that is not in the packet. Prints OK otherwise.
+carries a different packet hash, cites an object id that is not in the packet, or cites a candle
+(`bar:<PAIR>:<TF>:<YYYY-MM-DD HH:MM>:<field>`) that is not in the packet or is after the session close.
+Prints OK otherwise.
 """
 from __future__ import annotations
 
@@ -18,6 +20,9 @@ from pathlib import Path
 import jsonschema
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts.lib.brain import BAR_REF_ANY, bar_index, resolve_bar  # noqa: E402  (same resolver as the scorer)
+
 ID = re.compile(r"\b(?:EU|GB)-[A-Z]+-\d+\b|\bX-SMT-\d+\b")
 
 
@@ -53,9 +58,15 @@ def validate(path: Path, packet_path: Path | None = None) -> str | None:
         packet = json.loads(packet_path.read_text())
         if "packet_sha256" in doc and doc["packet_sha256"] != packet.get("sha256"):
             return f"{path.name} packet_sha256 differs from the packet's sha256"
-        unknown = sorted(set(ID.findall(json.dumps(doc))) - packet_ids(packet))
+        text = json.dumps(doc)
+        unknown = sorted(set(ID.findall(text)) - packet_ids(packet))
         if unknown:
             return f"{path.name} cites ids that are not in the packet: {', '.join(unknown[:10])}"
+        bidx = bar_index(packet)
+        for ref in sorted(set(BAR_REF_ANY.findall(text))):
+            price, why = resolve_bar(ref, packet, bidx)
+            if price is None:
+                return f"{path.name}: {why}"
     return None
 
 

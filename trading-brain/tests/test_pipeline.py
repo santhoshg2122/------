@@ -160,7 +160,11 @@ def test_pair_bias_rule(monkeypatch):
 
 # ------------------------------------------------------------------ end to end: agent files -> ingest -> grade
 
-def fake_run(pk: dict, run: Path, verdict="AGREE"):
+READING = {"EURUSD": "M15 lower highs; M5 wick through the Asia high closed back inside.",
+           "GBPUSD": "M5 displacement close down after the sweep."}
+
+
+def fake_run(pk: dict, run: Path, verdict="AGREE", extra=()):
     e = pk["pairs"]["EURUSD"]
     fvg = next(o for o in e["fvg"] if o["dir"] == "bear")
     lqs = e["liquidity"]
@@ -172,12 +176,14 @@ def fake_run(pk: dict, run: Path, verdict="AGREE"):
     sha = pk["sha256"]
     run.mkdir(parents=True, exist_ok=True)
     (run / "1_analyst.json").write_text(json.dumps({"agent": "chart-analyst", "packet_sha256": sha, "context": {},
-                                                    "candidates": [cand, bad]}))
+                                                    "candle_reading": READING, "candidates": [cand, bad, *extra]}))
     (run / "2_blind.json").write_text(json.dumps({"candidates": []}))
     (run / "2_critic.json").write_text(json.dumps({"agent": "chart-critic", "packet_sha256": sha, "status": "OK",
                                                    "verdicts": [{"candidate": "C1", "verdict": verdict, "confidence": 0.6},
-                                                                {"candidate": "C2", "verdict": "AGREE", "confidence": 0.5}]}))
+                                                                {"candidate": "C2", "verdict": "AGREE", "confidence": 0.5}] +
+                                                               [{"candidate": x["id"], "verdict": "AGREE", "confidence": 0.5} for x in extra]}))
     (run / "3_strategist.json").write_text(json.dumps({"agent": "cross-pair-strategist", "packet_sha256": sha, "status": "OK",
+                                                       "candle_reading": READING,
                                                        "third_audit": [{"candidate": "C1", "cross_pair": "confirms", "confidence": 0.65}],
                                                        "pair_decision": {"asia": "either", "london": "EURUSD", "newyork": "either", "flip_if": "x"}}))
 
@@ -234,3 +240,86 @@ def test_reviewer_drift_needs_sample():
     assert brain.agent_scores(st)["reviewer_drift"] is False
     st["agents"]["cycles"][0]["critic_verdicts"] = ["AGREE"] * 20
     assert brain.agent_scores(st)["reviewer_drift"] is True
+
+
+# ------------------------------------------------------------------ candle references (B011)
+
+def candle_cand(pk: dict, cid: str, off_pips: float = 0.0, basis: str | None = "wick_rejection") -> dict:
+    """A short from a window M5 candle's high, stop at a later candle's high + target at a context M15 low."""
+    e = pk["pairs"]["EURUSD"]
+    row = max(e["bars_m5"][10:40], key=lambda r: r[2])            # a clear M5 high in the window
+    ctx = min(e["bars_m15_context"], key=lambda r: r[3])          # lowest M15 context candle
+    ent = f"bar:EURUSD:M5:{DATE} {row[0]}:close"
+    inv = f"bar:EURUSD:M5:{DATE} {row[0]}:high"
+    tgt = f"bar:EURUSD:M15:{ctx[0]}:low"
+    c = {"id": cid, "pair": "EURUSD", "model": "candle_wick_rejection", "direction": "short", "thesis": "t",
+         "objects": [inv], "entry": {"object": ent, "price": round(row[4] + off_pips * P, 5)},
+         "invalidation": {"object": inv, "price": row[2]}, "target": {"object": tgt, "price": ctx[3]},
+         "confidence": 0.5, "falsifier": "f"}
+    if basis:
+        c["candle_basis"] = basis
+    return c
+
+
+def test_bar_reference_levels(data, tmp_path, monkeypatch):
+    monkeypatch.setattr(brain, "BRAIN", tmp_path / "brain")
+    pp = B.build("london", DATE, data)
+    pk = json.loads(pp.read_text())
+    run = tmp_path / "runs" / f"{DATE}_london"
+    good, off = candle_cand(pk, "C3"), candle_cand(pk, "C4", off_pips=0.5)
+    fake_run(pk, run, extra=(good, off))
+    assert V.validate(run / "1_analyst.json", pp) is None          # both refs exist; the price check is the scorer's
+    st = brain.load_state()
+    rep = brain.ingest_run(st, run, pp)
+    assert "C3" in rep["survived"]
+    assert {"id": "C4", "reason": "entry is not the close of that candle"} in rep["dropped"]
+    sig = next(s for s in rep["stored_signatures"] if s.startswith("candle_wick_rejection"))
+    parts = sig.split("|")
+    assert parts[3] == "M5" and "BAR" in parts[4].split("+") and parts[5] == "wick_rejection"
+    assert st["patterns"]["signatures"][sig]["candle_basis"] == "wick_rejection"
+
+
+def test_signature_without_basis_unchanged():
+    assert brain.signature("m", "EURUSD", "london", "M5", ["FVG", "LQ"]) == "m|EURUSD|london|M5|FVG+LQ"
+    assert brain.signature("m", "EURUSD", "london", "M5", ["BAR"], "engulfing") == "m|EURUSD|london|M5|BAR|engulfing"
+
+
+@pytest.mark.parametrize("ref,why", [
+    (f"bar:EURUSD:M1:{DATE} 16:00:high", "after the session close"),
+    (f"bar:EURUSD:M15:{DATE} 15:50:low", "after the session close"),          # would close at 16:05
+    (f"bar:EURUSD:M5:{DATE} 03:07:high", "not in the packet"),                # not a 5-minute boundary
+    ("bar:EURUSD:M1:2026-09-28 22:00:high", "M1 bars exist only for the session window"),
+    ("bar:EURUSD:M5:2026-09-20 10:00:high", "not in the packet"),              # before the context
+])
+def test_validator_rejects_bad_bar_refs(data, tmp_path, ref, why):
+    pp = B.build("london", DATE, data)
+    pk = json.loads(pp.read_text())
+    run = tmp_path / "r"
+    fake_run(pk, run)
+    a = json.loads((run / "1_analyst.json").read_text())
+    a["candidates"][0]["target"] = {"object": ref, "price": 1.1}
+    (run / "1_analyst.json").write_text(json.dumps(a))
+    assert why in V.validate(run / "1_analyst.json", pp)
+
+
+def test_bar_field_must_be_valid(data, tmp_path):
+    pp = B.build("london", DATE, data)
+    run = tmp_path / "r"
+    fake_run(json.loads(pp.read_text()), run)
+    a = json.loads((run / "1_analyst.json").read_text())
+    a["candidates"][0]["target"] = {"object": f"bar:EURUSD:M5:{DATE} 09:00:mid", "price": 1.1}
+    (run / "1_analyst.json").write_text(json.dumps(a))
+    assert "breaks its schema" in V.validate(run / "1_analyst.json", pp)
+
+
+def test_no_candle_after_close_or_inside_context(data):
+    pk = json.loads(B.build("london", DATE, data).read_text())
+    for e in pk["pairs"].values():
+        for tf, mins in (("m1", 1), ("m5", 5), ("m15", 15)):
+            for r in e[f"bars_{tf}"]:
+                t = pd.Timestamp(f"{DATE} {r[0]}")
+                assert pd.Timestamp(f"{DATE} 07:00") <= t and t + pd.Timedelta(minutes=mins) <= pd.Timestamp(f"{DATE} 16:00")
+        for tf in ("m5", "m15"):
+            ctx = e[f"bars_{tf}_context"]
+            assert ctx and all(pd.Timestamp(r[0]) < pd.Timestamp(f"{DATE} 07:00") for r in ctx)
+            assert pd.Timestamp(ctx[0][0]) >= pd.Timestamp(f"{DATE} 07:00") - pd.Timedelta(hours=24)
