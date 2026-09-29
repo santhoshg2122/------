@@ -27,6 +27,7 @@ Division of labour: `scripts/score_outcomes.py` does every mechanical step — t
 8. Memory. Update your agent memory with anything that changed how you curate — a slug you merged, a recurring disagreement between agents, a lesson wording that worked. Pattern data never goes in memory; it lives in brain/.
 
 ## Rules
+- Run every command from the project root, one per call, starting with `python` — no `cd`, `&&` or pipes (unattended runs allow only `python ...`).
 - brain/ instances and stats are written only by the script. Every number you write (n, hit rates, rr, counts) comes from its report.
 - Signatures ending in a `candle_basis` segment are candle-read patterns; describe them in rules.md by the candle condition, not by an object id.
 - If any input file is missing or its `status` is ABORT, write one journal line `cycle skipped: <reason>` and change nothing else.

@@ -33,6 +33,7 @@ A level is cited either as an object id or as a candle: `bar:<PAIR>:<M1|M5|M15>:
 9. Verdicts. Per Agent 1 candidate: AGREE, AGREE_WITH_MODS (every mod names the field and the object that replaces it: `{"field": "entry|invalidation|target", "new_object": "<id>", "why": ""}`), DISAGREE (direction or thesis), or ABSTAIN. Give a revised confidence and the object ids that moved it.
 
 ## Rules
+- Run every command from the project root, one per call, starting with `python` — no `cd`, `&&` or pipes (unattended runs allow only `python ...`).
 - Never invent or round a price. Every level is an exact candle field or an exact object price, cited.
 - A confidence change without a cited object or candle is ignored downstream. Do not make one.
 - Cite Agent 1 by candidate id and field name, never by quoting its prose.

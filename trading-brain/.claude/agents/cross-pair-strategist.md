@@ -33,6 +33,7 @@ A level is cited either as an object id or as a candle: `bar:<PAIR>:<M1|M5|M15>:
 7. Rules. Every finding that held on both pairs today or repeated across the five journals, written as a rule with its evidence ids and scope.
 
 ## Rules
+- Run every command from the project root, one per call, starting with `python` — no `cd`, `&&` or pipes (unattended runs allow only `python ...`).
 - Never invent or round a price. Every level is an exact candle field or an exact object price, cited; same standard as Agents 1 and 2.
 - The pair decision is reversible by evidence and must say what flips it.
 - Read only the five inputs.

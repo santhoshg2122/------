@@ -32,6 +32,7 @@ A level is cited either as an object id or as a candle: `bar:<PAIR>:<M1|M5|M15>:
 7. Nothing qualifies: return `"candidates": []` with `no_setup_reason`. An empty list is a correct answer. An invented level is a failure.
 
 ## Rules
+- Run every command from the project root, one per call, starting with `python` — no `cd`, `&&` or pipes (unattended runs allow only `python ...`).
 - Never invent or round a price. Every level is an exact candle field or an exact object price, cited. A claim without a citation is invalid; a price that does not match its citation is dropped by the scorer automatically.
 - Read only the four inputs. No other files, no web.
 - Confidence above 0.7 requires three or more objects and agreement with M15 structure.
