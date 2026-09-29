@@ -37,6 +37,7 @@ Analysts `model: sonnet`, curator `model: opus`, main `/cycle` session `--model 
 - **B007 Packet pruning**: context objects before the session are kept only while they matter at the close (live FVG/OB, unswept pools, last 8 h of structure) plus anything another object cites, so a packet stays under ~1,000 lines for the agents.
 - **B008 Session date** = the UTC date of the session for all three closes (NY closes 21:00 UTC = 02:30 IST, still the same UTC day); the plan's `date -u -d yesterday` would have picked the wrong day.
 - **B009 Critic on Sonnet** (user's choice): independence rests on the blind read in `2_blind.json`, written before Agent 1's file is opened.
+- **B010 Trust the folder once.** Claude Code ignores `.claude/settings.json` permission rules in an untrusted folder; the scheduled runs therefore also pass `--allowedTools`, and the first interactive `claude` in the folder must accept the trust prompt.
 
 ## Status
 - Built and tested (`python -m pytest -q`): ingest, detectors, packet, validator, scorer, ladder, pair bias, end-to-end ingest.
@@ -48,6 +49,6 @@ pip install -r requirements.txt            (plus: pip install MetaTrader5)
 python -m pytest -q
 python scripts/export_from_mt5.py          (MT5 running and logged in)
 python scripts/build_packet.py --session london --date <yesterday>     # compare with your chart; tune config/detectors.json
-claude  →  /cycle london <yesterday>       # read runs/<date>_london/ and brain/journal/
+claude  →  accept the folder-trust prompt, then /cycle london <yesterday>   # read runs/<date>_london/ and brain/journal/
 powershell -ExecutionPolicy Bypass -File scripts\install_tasks.ps1
 ```
