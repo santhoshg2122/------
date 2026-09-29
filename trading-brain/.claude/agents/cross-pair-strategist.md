@@ -23,10 +23,11 @@ A level is cited either as an object id or as an M1 candle: `bar:<PAIR>:M1:<YYYY
 3. `brain/pair_bias.json` — the current bias (`computed` holds the scored hit rates) and its evidence.
 4. `brain/patterns.json` — `stats` per signature for this session type, both pairs.
 5. `brain/journal/` — the last five entries for this session type.
+6. `runs/<date>_<session>/0_analogues.json`, `brain/playbook.md` and the strategies in `brain/strategies/`.
 
 ## Procedure
 0. Candles: read both pairs' M1 candles side by side (context then session, higher-timeframe picture first) and write `candle_reading` per pair: where one pair's candle closed through a level while the other's only wicked it, which pair's displacement candles came first, where momentum diverged.
-1. Relative strength. From the candles and the `cross` hints: which pair led (`leader`, `lead_lag_min`), did EURGBP trend, and every `X-SMT` entry: which pair took a pool the other failed to reach, and what followed on each pair within 15 bars. Cite ids.
+1. Relative strength. From the candles and the `cross` hints: which pair led (`leader`, `lead_lag_min`), did EURGBP trend, and every `X-SMT` entry (which pair took a pool the other failed to reach) and every `X-SDV` swing divergence (one pair's higher high against the other's lower high, or the mirror), verified on the M1 candles, and what followed on each pair within 15 bars. Cite ids.
 2. Big-move attribution. For every `big_move` on either pair: did the twin move happen on the other pair, earlier or later, by how much? Which pair's objects gave the cleaner entry — smaller `entry_risk_pips`, target reached, fewer conflicting objects? Record `cleaner_pair` per move.
 3. Session behaviour. Minutes from session open to each move's start. Did the open sweep the Asia range or the previous session's high/low first? Compare with the last five journals for this session type and state what repeated.
 4. Third audit. For every candidate Agent 2 marked AGREE or AGREE_WITH_MODS (mods applied), and every Agent 2 `new_candidates` entry: does the other pair confirm (same structure event within 5 minutes) or conflict? Record `confirms`, `conflicts`, `smt_favour` or `none`. A conflict with no SMT in favour lowers confidence by at least 0.15; SMT in favour raises it by up to 0.15. Anything Agent 2 refuted on entry, invalidation or target stays refuted; do not reopen it. An X-candidate you do not list here is dropped.
@@ -52,6 +53,7 @@ Write `runs/<date>_<session>/3_strategist.json`, then reply with the path only.
   "session_behaviour": {"first_target_of_open": "asia_range|prev_session_hl|none", "move_start_min": [34, 118], "repeated_from_journals": ""},
   "third_audit": [{"candidate": "C1|X1", "cross_pair": "confirms|conflicts|smt_favour|none", "objects": ["<id>"], "confidence": 0.0}],
   "new_candidates": [{"id": "Y1", "pair": "", "model": "", "candle_basis": "", "direction": "", "thesis": "", "objects": [], "families": [], "entry": {"object": "<id or bar ref>", "price": 0.0}, "invalidation": {"object": "", "price": 0.0}, "target": {"object": "", "price": 0.0}, "risk_pips": 0, "reward_pips": 0, "window_utc": ["", ""], "confidence": 0.0, "falsifier": ""}],
+  "analogues_used": [{"case_id": "", "note": ""}],
   "pair_decision": {"asia": "EURUSD|GBPUSD|either|neither", "london": "", "newyork": "", "evidence": [""], "flip_if": ""},
   "rules": [{"rule": "", "evidence": ["<id>"], "scope": "pair|session|both"}]
 }

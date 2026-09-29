@@ -21,9 +21,10 @@ import jsonschema
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from scripts.lib import brain as _brain  # noqa: E402
 from scripts.lib.brain import BAR_REF_ANY, bar_index, resolve_bar  # noqa: E402  (same resolver as the scorer)
 
-ID = re.compile(r"\b(?:EU|GB)-[A-Z]+-\d+\b|\bX-SMT-\d+\b")
+ID = re.compile(r"\b(?:EU|GB)-[A-Z]+-\d+\b|\bX-(?:SMT|SDV)-\d+\b")
 
 
 def schema_for(path: Path) -> Path:
@@ -68,6 +69,11 @@ def validate(path: Path, packet_path: Path | None = None) -> str | None:
         unknown = sorted(set(ID.findall(text)) - packet_ids(packet))
         if unknown:
             return f"{path.name} cites ids that are not in the packet: {', '.join(unknown[:10])}"
+        reg = _brain._load("strategy_stats.json", {})
+        for c in doc.get("candidates", []) + doc.get("new_candidates", []):
+            sid = c.get("strategy_id")
+            if sid and sid not in reg:
+                return f"{path.name}: candidate {c.get('id')} cites unregistered strategy {sid}"
     return None
 
 

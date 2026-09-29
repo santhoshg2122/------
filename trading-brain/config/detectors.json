@@ -12,6 +12,7 @@
   "big_move": {"zigzag_reversal_atr_m15": 1.0, "min_move_atr_m15": 2.5, "max_minutes": 90,
                "preceded_window_min": [-30, 15]},
   "smt": {"max_minutes_apart": 5, "equal_pool_match_minutes": 60},
+  "swing_divergence": {"tf": "M5", "max_minutes_apart": 10},
   "cross": {"corr_m5_bars": 60, "max_lag_min": 5, "eurgbp_flat_pct": 0.03},
   "news": {"blackout_minutes": 15, "impact": ["high"]},
   "m1_objects_in_window_only": true,

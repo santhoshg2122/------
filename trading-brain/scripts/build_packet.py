@@ -327,7 +327,38 @@ def cross_pair(bars: dict, start, end, packs: dict, date: str, dcfg: dict) -> di
     out["smt"].sort(key=lambda s: s["time"])
     for i, s in enumerate(out["smt"], 1):
         s["id"] = f"X-SMT-{i}"
+    out["swing_divergence"] = swing_divergence(packs, start, date, dcfg)
     return out
+
+
+def swing_divergence(packs: dict, start, date: str, dcfg: dict) -> list[dict]:
+    """EUR vs GBP swing divergence: at matching consecutive swings (same type, within N minutes of each other),
+    one pair makes a higher high while the other makes a lower high (or the mirror for lows). Session only."""
+    cfg = dcfg.get("swing_divergence", {"tf": "M5", "max_minutes_apart": 10})
+    tol = pd.Timedelta(minutes=cfg["max_minutes_apart"])
+    sw = {p: [s for s in packs[p].get("swings", []) if s["tf"] == cfg["tf"]] for p in ("EURUSD", "GBPUSD")}
+    out = []
+    for typ in ("high", "low"):
+        e = [s for s in sw["EURUSD"] if s["type"] == typ]
+        g = [s for s in sw["GBPUSD"] if s["type"] == typ]
+        for a, b in zip(e, e[1:]):
+            if b["_t"] < start:
+                continue
+            ga = min(g, key=lambda s: abs(s["_t"] - a["_t"]), default=None)
+            gb = min(g, key=lambda s: abs(s["_t"] - b["_t"]), default=None)
+            if ga is None or gb is None or ga is gb or abs(ga["_t"] - a["_t"]) > tol or abs(gb["_t"] - b["_t"]) > tol:
+                continue
+            e_up, g_up = b["price"] > a["price"], gb["price"] > ga["price"]
+            if e_up == g_up:
+                continue
+            word = ("higher high", "lower high") if typ == "high" else ("higher low", "lower low")
+            out.append({"time": hm(b["_t"], date), "type": typ, "EURUSD": [a["id"], b["id"]], "GBPUSD": [ga["id"], gb["id"]],
+                        "reading": f"EURUSD {word[0] if e_up else word[1]}, GBPUSD {word[0] if g_up else word[1]}",
+                        "_t": b["_t"]})
+    out.sort(key=lambda x: x["_t"])
+    for i, x in enumerate(out, 1):
+        x["id"] = f"X-SDV-{i}"
+    return [{"id": x["id"], **{k: v for k, v in x.items() if k != "id"}} for x in out]
 
 
 def news_for(start, end, dcfg: dict, cal_path: Path) -> tuple[list, list]:
@@ -379,12 +410,25 @@ def dump(o, ind: int = 0) -> str:
     return json.dumps(o)
 
 
-def build(session: str, date: str, data_dir: Path = ROOT / "data", out_dir: Path | None = None) -> Path:
+def load_history(path: Path, pair: str) -> pd.DataFrame:
+    """A year of M1 is slow to parse per session: cache the ingested bars as parquet next to the CSV."""
+    cache = path.with_suffix(".parquet")
+    if cache.exists() and cache.stat().st_mtime >= path.stat().st_mtime:
+        return pd.read_parquet(cache)
+    b, _ = load_utc(path, pair)
+    b.to_parquet(cache, index=False)
+    return b
+
+
+def build(session: str, date: str, data_dir: Path = ROOT / "data", out_dir: Path | None = None,
+          history: bool = False) -> Path:
+    """history=True reads data/history/<PAIR>_M1.csv (replay, B013); the cut at the close is the same."""
     scfg, dcfg = load_config("sessions"), load_config("detectors")
     out_dir = out_dir or data_dir / "packets"
     out_dir.mkdir(parents=True, exist_ok=True)
     start, end = window(date, session, scfg)
-    paths = [data_dir / f"{p}_M1.csv" for p in PAIRS]
+    src = data_dir / "history" if history else data_dir
+    paths = [src / f"{p}_M1.csv" for p in PAIRS]
     pkt = {"session": session, "date": date, "window_utc": [start.strftime("%H:%M"), end.strftime("%H:%M")],
            "sha256": None, "status": "OK", "status_reason": ""}
     out_path = out_dir / f"{date}_{session}.json"
@@ -393,18 +437,29 @@ def build(session: str, date: str, data_dir: Path = ROOT / "data", out_dir: Path
         pkt.update(status="MISSING", status_reason=f"not found: {', '.join(missing)}")
         out_path.write_text(dump(pkt) + "\n")
         return out_path
-    pkt["sha256"] = sha256_files(paths)
+    if not history:
+        pkt["sha256"] = sha256_files(paths)
     ctx0 = start - pd.Timedelta(hours=scfg["context_hours"])
     ctx0 = min(ctx0, (pd.Timestamp(date, tz="UTC") - pd.Timedelta(days=3)))
     bars = {}
     for pair, p in zip(PAIRS, paths):
-        b, _ = load_utc(p, pair)
+        try:
+            b = load_history(p, pair) if history else load_utc(p, pair)[0]
+        except (ValueError, IndexError, KeyError) as e:  # empty or unreadable export: skip the session, never crash
+            pkt.update(status="MISSING", status_reason=f"{pair}: {p.name} unreadable ({type(e).__name__})")
+            out_path.write_text(dump(pkt) + "\n")
+            return out_path
         bars[pair] = b[(b["time"] >= ctx0) & (b["time"] < end)].reset_index(drop=True)  # never read past the close
         st, why = check_status(bars[pair], start, end, scfg)
         if st != "OK":
             pkt.update(status=st, status_reason=f"{pair}: {why}")
             out_path.write_text(dump(pkt) + "\n")
             return out_path
+    if history:  # a year-long file hashes the same for every session: hash the bars this packet is built from
+        h = hashlib.sha256()
+        for pair in PAIRS:
+            h.update(bars[pair].to_csv(index=False).encode())
+        pkt["sha256"] = h.hexdigest()
     packs = {pair: pair_objects(bars[pair], start, end, date, session, pair, scfg, dcfg) for pair in PAIRS}
     pkt["pairs"] = packs
     pkt["cross"] = cross_pair(bars, start, end, packs, date, dcfg)
@@ -418,8 +473,9 @@ def main(argv=None) -> int:
     ap.add_argument("--session", required=True, choices=["asia", "london", "newyork"])
     ap.add_argument("--date", required=True)
     ap.add_argument("--data", type=Path, default=ROOT / "data")
+    ap.add_argument("--history", action="store_true", help="build from data/history/ (replay)")
     a = ap.parse_args(argv)
-    p = build(a.session, a.date, a.data)
+    p = build(a.session, a.date, a.data, history=a.history)
     st = json.loads(p.read_text())
     print(f"{p} status={st['status']} {st.get('status_reason', '')}".rstrip())
     return 0

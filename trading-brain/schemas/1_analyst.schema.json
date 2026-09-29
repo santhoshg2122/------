@@ -58,6 +58,24 @@
      "minLength": 1
     }
    }
+  },
+  "analogues_used": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "case_id",
+     "note"
+    ],
+    "properties": {
+     "case_id": {
+      "type": "string"
+     },
+     "note": {
+      "type": "string"
+     }
+    }
+   }
   }
  },
  "$defs": {
@@ -98,7 +116,7 @@
      "type": "array",
      "items": {
       "type": "string",
-      "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-SMT-\\d+|bar:(EURUSD|GBPUSD):M1:\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$"
+      "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-(SMT|SDV)-\\d+|bar:(EURUSD|GBPUSD):M1:\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$"
      }
     },
     "families": {
@@ -137,6 +155,11 @@
      "type": "string",
      "pattern": "^[a-z][a-z0-9_]{2,40}$",
      "description": "e.g. wick_rejection, engulfing, displacement_close, inside_bar, momentum_stall; becomes the signature's last segment"
+    },
+    "strategy_id": {
+     "type": "string",
+     "pattern": "^S\\d{3}$",
+     "description": "the brain/strategies/ strategy this setup applies, when it applies one"
     }
    }
   },
@@ -149,7 +172,7 @@
    "properties": {
     "object": {
      "type": "string",
-     "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-SMT-\\d+|bar:(EURUSD|GBPUSD):M1:\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$",
+     "pattern": "^((EU|GB)-[A-Z]+-\\d+|X-(SMT|SDV)-\\d+|bar:(EURUSD|GBPUSD):M1:\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:(open|high|low|close))$",
      "description": "an object id, or a candle: bar:<PAIR>:M1:<YYYY-MM-DD HH:MM>:<open|high|low|close>"
     },
     "price": {

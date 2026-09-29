@@ -4,6 +4,7 @@
     python scripts/export_from_mt5.py                       # last 3 days -> data/<PAIR>_M1.csv, 60 days -> data/history/
     python scripts/export_from_mt5.py --broker-tz NY+7      # skip clock detection
     python scripts/export_from_mt5.py --from-csv "C:\\...\\EURUSD_1m_NY.csv" --pair EURUSD   # seed history from a file
+    python scripts/export_from_mt5.py --from 2025-09-29 --to 2026-09-25 --history-only      # a year for the replay (B013)
 
 MT5 returns bar times on the broker's server clock labelled as if UTC. The clock is taken from --broker-tz, else
 from the Trading Journal's exporter config (`broker_tz`), else detected from where the weekly opens land
@@ -59,7 +60,22 @@ def naive_to_utc(naive: pd.Series, zone: str) -> pd.Series:
     return ingest.to_ny(naive, zone).dt.tz_convert("UTC")
 
 
-def from_mt5(pairs: list[str], history_days: int, zone: str | None) -> dict:
+def write_history(pair: str, utc: pd.DataFrame, frm: str, to: str, out: Path) -> None:
+    """The whole [frm, to] range (UTC dates, inclusive) to data/history/<PAIR>_M1.csv, for replay packets."""
+    (out / "history").mkdir(parents=True, exist_ok=True)
+    lo, hi = pd.Timestamp(frm, tz="UTC"), pd.Timestamp(to, tz="UTC") + pd.Timedelta(days=1)
+    w = utc[(utc["time"] >= lo) & (utc["time"] < hi)]
+    to_contract(w).to_csv(out / "history" / f"{pair}_M1.csv", index=False)
+    cache = out / "history" / f"{pair}_M1.parquet"
+    if cache.exists():
+        cache.unlink()  # build_packet re-caches from the new CSV
+    first = w["time"].min() if len(w) else None
+    last = w["time"].max() if len(w) else None
+    print(f"{pair}: coverage {first:%Y-%m-%d %H:%M} -> {last:%Y-%m-%d %H:%M} UTC, {len(w):,} bars "
+          f"(asked {frm} -> {to})" if len(w) else f"{pair}: NO bars in {frm} -> {to}")
+
+
+def from_mt5(pairs: list[str], history_days: int, zone: str | None, frm: str | None = None, to: str | None = None) -> dict:
     import MetaTrader5 as mt5  # only on the PC with the terminal
 
     if not mt5.initialize():
@@ -69,8 +85,9 @@ def from_mt5(pairs: list[str], history_days: int, zone: str | None) -> dict:
         now = pd.Timestamp.now(tz="UTC").tz_localize(None) + pd.Timedelta(hours=14)  # beyond any server clock
         for pair in pairs:
             mt5.symbol_select(pair, True)
-            r = mt5.copy_rates_range(pair, mt5.TIMEFRAME_M1, (now - pd.Timedelta(days=history_days + 3)).to_pydatetime(),
-                                     now.to_pydatetime())
+            lo = pd.Timestamp(frm) - pd.Timedelta(days=2) if frm else now - pd.Timedelta(days=history_days + 3)
+            hi = pd.Timestamp(to) + pd.Timedelta(days=2) if to else now
+            r = mt5.copy_rates_range(pair, mt5.TIMEFRAME_M1, lo.to_pydatetime(), hi.to_pydatetime())
             if r is None or len(r) == 0:
                 raise SystemExit(f"{pair}: no bars from MT5 ({mt5.last_error()})")
             df = pd.DataFrame(r)
@@ -98,17 +115,28 @@ def main(argv=None) -> int:
     ap.add_argument("--from-csv", type=Path, help="seed from an existing CSV instead of MT5 (any layout ingest reads)")
     ap.add_argument("--pair", help="pair of --from-csv")
     ap.add_argument("--out", type=Path, default=ROOT / "data")
+    ap.add_argument("--from", dest="frm", help="history start date (UTC) for the replay")
+    ap.add_argument("--to", help="history end date (UTC, inclusive)")
+    ap.add_argument("--history-only", action="store_true", help="write only data/history/<PAIR>_M1.csv for [--from, --to]")
     a = ap.parse_args(argv)
+    if a.history_only and not (a.frm and a.to):
+        raise SystemExit("--history-only needs --from and --to")
     if a.from_csv:
         if not a.pair:
             raise SystemExit("--from-csv needs --pair")
         utc, meta = ingest.load_utc(a.from_csv, a.pair, zone=a.broker_tz)
         print(f"{a.pair}: clock {meta['clock']}")
-        write(a.pair, utc, a.days, a.history_days, a.out)
+        if a.history_only:
+            write_history(a.pair, utc, a.frm, a.to, a.out)
+        else:
+            write(a.pair, utc, a.days, a.history_days, a.out)
         return 0
     pairs = [p.strip().upper() for p in a.pairs.split(",") if p.strip()]
-    for pair, utc in from_mt5(pairs, a.history_days, a.broker_tz).items():
-        write(pair, utc, a.days, a.history_days, a.out)
+    for pair, utc in from_mt5(pairs, a.history_days, a.broker_tz, a.frm, a.to).items():
+        if a.history_only:
+            write_history(pair, utc, a.frm, a.to, a.out)
+        else:
+            write(pair, utc, a.days, a.history_days, a.out)
     return 0
 
 

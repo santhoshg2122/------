@@ -17,7 +17,7 @@ import pandas as pd
 from .timeutil import ROOT, load_config
 
 BRAIN = ROOT / "brain"
-FAMILY_OF = {"SW": "ST", "ST": "ST", "DP": "ST", "FVG": "FVG", "OB": "OB", "LQ": "LQ", "RT": "RT", "DV": "DV", "SMT": "SMT", "BM": "BM"}
+FAMILY_OF = {"SW": "ST", "ST": "ST", "DP": "ST", "FVG": "FVG", "OB": "OB", "LQ": "LQ", "RT": "RT", "DV": "DV", "SMT": "SMT", "SDV": "SMT", "BM": "BM"}
 SESSIONS = ("asia", "london", "newyork")
 PAIRS = ("EURUSD", "GBPUSD")
 
@@ -41,6 +41,7 @@ def load_state() -> dict:
         "agents": _load("agent_scores.json", {"cycles": [], "pair_calls": []}),
         "cycles": _load("cycle_log.json", []),
         "bias": _load("pair_bias.json", {}),
+        "strategies": _load("strategy_stats.json", {}),
     }
 
 
@@ -50,6 +51,7 @@ def save_state(st: dict) -> None:
     _save("agent_scores.json", st["agents"])
     _save("cycle_log.json", st["cycles"])
     _save("pair_bias.json", st["bias"])
+    _save("strategy_stats.json", st.get("strategies", {}))
 
 
 def now() -> str:
@@ -147,8 +149,8 @@ def object_index(packet: dict) -> LevelIndex:
                 for k, v in (o.get("levels") or {}).items():
                     prices[k] = v
                 idx[o["id"]] = {"pair": pair, "kind": o["id"].split("-")[1], "tf": o.get("tf", "M1"), "prices": prices}
-    for s in (packet.get("cross") or {}).get("smt", []):
-        idx[s["id"]] = {"pair": None, "kind": "SMT", "tf": "M1", "prices": {}}
+    for s in (packet.get("cross") or {}).get("smt", []) + (packet.get("cross") or {}).get("swing_divergence", []):
+        idx[s["id"]] = {"pair": None, "kind": s["id"].split("-")[1], "tf": "M5" if "SDV" in s["id"] else "M1", "prices": {}}
     return idx
 
 
@@ -276,7 +278,8 @@ def ingest_run(st: dict, run_dir: Path, packet_path: Path) -> dict:
                     "invalidation": inv, "target": tgt, "flagged_at": end, "outcome": "pending", "move_pips": 0,
                     "min_to_target": None, "scored_on": "", "source": c["id"], "source_agent": r["source_agent"],
                     "confidence": c.get("confidence"), "critic_verdict": r["critic_verdict"], "strategist": r["strategist"],
-                    "signature": sig, "kind": kind, "drop_reason": r["reason"]}
+                    "signature": sig, "kind": kind, "drop_reason": r["reason"],
+                    "thesis": c.get("thesis"), "candle_basis": basis, "strategy_id": c.get("strategy_id")}
             st["pending"].append(inst)
             if kind == "instance":
                 s = st["patterns"]["signatures"].setdefault(sig, {
@@ -287,8 +290,11 @@ def ingest_run(st: dict, run_dir: Path, packet_path: Path) -> dict:
                 s["last_seen"] = date
                 s["instances"].append({k: v for k, v in inst.items() if k not in ("kind", "drop_reason")})
                 stored.append(sig)
+    from . import library as L
+    lib_new = []
     for pair, pk in packet["pairs"].items():
         for bm in pk.get("big_moves", []):
+            lib_new.append(L.case_from_big_move(key, pair, bm, packet, pd.Timestamp(end)))
             st["patterns"]["big_move_attributions"].append({
                 "cycle": key, "pair": pair, "move": bm["id"], "pips": bm["pips"],
                 "families": families_of(bm.get("preceded_by", [])), "entry_was_available": bm.get("entry_was_available"),
@@ -298,6 +304,7 @@ def ingest_run(st: dict, run_dir: Path, packet_path: Path) -> dict:
     st["agents"]["cycles"].append(agent_cycle_record(key, res))
     st["agents"]["cycles"] = st["agents"]["cycles"][-load_config("brain")["agent_grading_window_cycles"]:]
     st["cycles"].append({"key": key, "date": date, "session": session, "ingested_at": now()})
+    L.Library(BRAIN).add(lib_new)
     return {"cycle": key, "survived": [r["candidate"]["id"] for r in res["survivors"]],
             "dropped": [{"id": r["candidate"].get("id"), "reason": r["reason"]} for r in res["dropped"]],
             "stored_signatures": stored}
@@ -353,8 +360,23 @@ def _outcome(o, best, pip, entered_at, t, why):
             "scored_on": now()}
 
 
-def grade_pending(st: dict, bars_by_pair: dict) -> list[dict]:
+def session_end(key: str) -> pd.Timestamp:
+    """'2026-09-29_london' -> the session's close in UTC."""
+    date, session = key.split("_", 1)
+    return pd.Timestamp(f"{date} {load_config('sessions')['sessions'][session]['end']}", tz="UTC")
+
+
+def replay_clock(st: dict) -> pd.Timestamp | None:
+    """The latest moment the Brain may know about: the close of the newest ingested session."""
+    return max((session_end(c["key"]) for c in st["cycles"]), default=None)
+
+
+def grade_pending(st: dict, bars_by_pair: dict, asof: pd.Timestamp | None = None) -> list[dict]:
+    """Grade pending trades with bars strictly before `asof` (the replay clock, B013). In a replay the history file
+    holds the future; without this cap an earlier session's result would reveal where a later session went."""
     cfg = load_config("brain")
+    if asof is not None:
+        bars_by_pair = {p: b[b["time"] < asof] for p, b in bars_by_pair.items()}
     done, still = [], []
     for inst in st["pending"]:
         b = bars_by_pair.get(inst["pair"])
@@ -370,6 +392,10 @@ def grade_pending(st: dict, bars_by_pair: dict) -> list[dict]:
                 if x["id"] == inst["id"]:
                     x.update(g)
     st["pending"] = still
+    if done:  # every graded setup, survivor or shadow, becomes a retrievable case with its candle picture
+        from . import library as L
+        known = asof if asof is not None else pd.Timestamp.now(tz="UTC")
+        L.Library(BRAIN).add([L.case_from_instance(i, bars_by_pair, known) for i in done])
     graded = st["agents"].setdefault("graded", [])
     graded.extend({"id": i["id"], "kind": i["kind"], "pair": i["pair"], "outcome": i["outcome"],
                    "cycle": i["id"].split(":")[0]} for i in done)
@@ -502,8 +528,65 @@ def agent_scores(st: dict) -> dict:
             "reviewer_drift": flag}
 
 
+# ------------------------------------------------------------------ strategies (B013)
+
+STRATEGY_ID = re.compile(r"^S\d{3}$")
+
+
+def register_strategy(st: dict, sid: str, supersedes: str | None = None) -> dict:
+    """Record a strategy the writer just wrote. Its clock starts now (the replay clock), so it is judged only on
+    trades made after it existed. A revision is a new id; the old one is retired as superseded."""
+    if not STRATEGY_ID.match(sid or ""):
+        raise ValueError(f"strategy id must look like S001, got {sid!r}")
+    if not (BRAIN / "strategies" / f"{sid}.md").exists():
+        raise ValueError(f"brain/strategies/{sid}.md does not exist")
+    reg = st.setdefault("strategies", {})
+    if sid in reg:
+        raise ValueError(f"{sid} is already registered; a revision needs a new id")
+    clock = replay_clock(st) or pd.Timestamp.now(tz="UTC")
+    reg[sid] = {"created_at": clock.strftime("%Y-%m-%dT%H:%M:%SZ"), "status": "testing", "supersedes": supersedes,
+                "status_changed": clock.strftime("%Y-%m-%d"), "stats": {}}
+    if supersedes:
+        if supersedes not in reg:
+            raise ValueError(f"cannot supersede unknown {supersedes}")
+        reg[supersedes].update(status="retired", retired_reason=f"superseded by {sid}",
+                               status_changed=clock.strftime("%Y-%m-%d"))
+    return reg[sid]
+
+
+def strategy_ladder(st: dict) -> list[dict]:
+    """Per-strategy results on trades flagged after the strategy was registered; testing -> trusted / retired."""
+    L = load_config("brain")["strategy_ladder"]
+    reg = st.setdefault("strategies", {})
+    trades: dict[str, list] = {}
+    for s in st["patterns"]["signatures"].values():
+        for i in s["instances"]:
+            sid = i.get("strategy_id")
+            if sid in reg and i["flagged_at"] > reg[sid]["created_at"]:
+                trades.setdefault(sid, []).append(i)
+    changes = []
+    for sid, r in reg.items():
+        ins = sorted(trades.get(sid, []), key=lambda i: i["flagged_at"])
+        r["stats"] = sig_stats(ins)
+        x, old = r["stats"], r["status"]
+        new = old
+        if old != "retired":
+            if x["n"] >= L["retire_min_n"] and x["last_20_hit_rate"] < L["retire_last20_below"]:
+                new = "retired"
+            elif old == "testing" and x["n"] >= L["trusted"]["min_n"] and x["hit_rate"] >= L["trusted"]["min_hit_rate"] \
+                    and x["avg_rr"] >= L["trusted"]["min_avg_rr"]:
+                new = "trusted"
+        if new != old:
+            clock = replay_clock(st)
+            r["status"], r["status_changed"] = new, (clock.strftime("%Y-%m-%d") if clock is not None else now()[:10])
+            changes.append({"strategy": sid, "from": old, "to": new, "n": x["n"], "hit_rate": x["hit_rate"],
+                            "last_20": x["last_20_hit_rate"], "avg_rr": x["avg_rr"]})
+    return changes
+
+
 def recompute(st: dict) -> dict:
     changes = apply_ladder(st)
+    strategy_changes = strategy_ladder(st)
     bias = compute_pair_bias(st)
     st["bias"] = {**{k: v for k, v in st["bias"].items() if k not in ("computed", "updated")},
                   "computed": bias, "updated": now()}
@@ -512,8 +595,10 @@ def recompute(st: dict) -> dict:
     counts = {}
     for s in st["patterns"]["signatures"].values():
         counts[s["status"]] = counts.get(s["status"], 0) + 1
-    return {"status_changes": changes, "pair_bias": bias, "agent_scores": scores, "signature_counts": counts,
-            "pending": len(st["pending"])}
+    return {"status_changes": changes, "strategy_changes": strategy_changes,
+            "strategies": {k: {"status": v["status"], "created_at": v["created_at"], **{m: v["stats"].get(m) for m in
+                               ("n", "hit_rate", "last_20_hit_rate", "avg_rr")}} for k, v in st["strategies"].items()},
+            "pair_bias": bias, "agent_scores": scores, "signature_counts": counts, "pending": len(st["pending"])}
 
 
 # ------------------------------------------------------------------ weekly
@@ -541,33 +626,3 @@ def merge_signatures(st: dict) -> list[dict]:
     for b in gone:
         del sigs[b]
     return merged
-
-
-def precursor_mining(st: dict) -> list[dict]:
-    P = load_config("brain")["precursor_mining"]
-    recent = [c["key"] for c in st["cycles"]]
-    found = []
-    for sess in SESSIONS:
-        keys = [k for k in recent if k.endswith(sess)][-P["sessions"]:]
-        moves = [m for m in st["patterns"]["big_move_attributions"] if m["cycle"] in keys]
-        if len(moves) < P["min_n"]:
-            continue
-        combos: dict[tuple, int] = {}
-        for m in moves:
-            fams = sorted(set(m["families"]) - {"BM"})
-            for r in (2, 3):
-                for combo in itertools.combinations(fams, r):
-                    combos[combo] = combos.get(combo, 0) + 1
-        for combo, k in combos.items():
-            share = k / len(moves)
-            if share >= P["min_share"]:
-                slug = f"hp_{sess}_{'_'.join(c.lower() for c in combo)}"
-                hp = st["patterns"]["hidden_patterns"]
-                if slug not in hp:
-                    hp[slug] = {"rule": f"{' + '.join(combo)} precede big moves in {sess}", "proposed_by": "precursor_mining",
-                                "instances": k, "share": round(share, 3), "backtest": "pending", "research_ref": ""}
-                    found.append({"slug": slug, "share": round(share, 3), "n_moves": len(moves)})
-    return found
-
-
-

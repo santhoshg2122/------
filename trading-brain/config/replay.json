@@ -1,0 +1,10 @@
+{
+  "_note": "Replay (learn from history first, B013). Per-run limits keep one batch to an overnight run; re-run to continue.",
+  "max_sessions_per_run": 60,
+  "max_cost_usd_per_run": 100,
+  "weekly_every_sessions": 15,
+  "summary_every_sessions": 60,
+  "stop_after_failures_in_row": 3,
+  "claude_command": "claude",
+  "main_model": "opus"
+}
